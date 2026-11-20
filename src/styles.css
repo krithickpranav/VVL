@@ -104,6 +104,13 @@ h1, h2, p { margin-top: 0; }
 .save-button { min-width: 210px; min-height: 45px; font-size: 13px; }
 .entry-list { display: grid; gap: 10px; }
 .entry-card { position: relative; display: grid; grid-template-columns: minmax(140px,2fr) minmax(120px,1fr) minmax(80px,.8fr) minmax(120px,1fr) minmax(110px,1fr) 25px; gap: 12px; align-items: end; border: 1px solid #edf0f4; border-radius: 8px; padding: 14px 12px; background: #fbfcfe; }
+.entry-card.diesel-entry { grid-template-columns: minmax(130px, 1.8fr) minmax(110px, 1fr) minmax(75px, 0.7fr) minmax(110px, 1.1fr) minmax(110px, 1.1fr) minmax(95px, 0.9fr) 25px; }
+.diesel-summary-strip { display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; }
+.diesel-summary-strip > div { display: flex; align-items: baseline; gap: 6px; }
+.driver-advance-adjustment { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; background: #f0fdf4; border: 1px dashed #86efac; border-radius: 7px; margin-top: 9px; font-size: 11px; color: #166534; }
+.driver-advance-adjustment strong { font-weight: 800; color: #15803d; font-size: 13px; }
+.driver-advance-net { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; margin-top: 8px; border-radius: 7px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 11px; color: #334155; }
+.driver-advance-net strong { color: #0f172a; font: 800 13px Manrope, sans-serif; }
 .entry-rate { display: flex; min-height: 57px; flex-direction: column; justify-content: center; gap: 5px; }
 .entry-rate strong { color: #26364d; font-size: 12px; }
 .entry-card .row-delete { align-self: center; }
