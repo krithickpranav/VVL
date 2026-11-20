@@ -871,7 +871,20 @@ h1, h2, p {
   padding-top: 15px;
 }
 
-/* Repeatables */
+/* Expense split card — adds Paid by Owner + Paid by Driver to a row */
+/* Used by tolls, otherExpenses, vehicleExpenses repeatable rows */
+.repeatable-row.expense-split-card {
+  grid-template-columns: minmax(115px, .8fr) minmax(160px, 1.4fr) minmax(110px, .8fr) minmax(110px, .8fr) minmax(90px, .65fr) 28px;
+  min-width: 0;
+}
+
+.vehicle-expense-row.expense-split-card {
+  /* Date, Type, Name/Desc, Litres, Rate, Paid by Owner, Paid by Driver, Total, Delete */
+  grid-template-columns: minmax(110px, .75fr) minmax(130px, .9fr) minmax(120px, .9fr) minmax(65px, .5fr) minmax(90px, .7fr) minmax(105px, .8fr) minmax(105px, .8fr) minmax(80px, .6fr) 28px;
+  min-width: 0;
+}
+
+/* Repeatable heading */
 .repeatable-block {
   margin-top: 19px;
   border-top: 1px solid #edf0f4;
@@ -1666,6 +1679,45 @@ h1, h2, p {
     right: 8px;
     width: 32px;
     height: 32px;
+  }
+
+  /* Expense split card on tablet/mobile: 2-column wrap */
+  .repeatable-row.expense-split-card {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .repeatable-row.expense-split-card .field:nth-child(2) {
+    grid-column: 1 / -1;
+    padding-right: 36px;
+  }
+
+  .repeatable-row.expense-split-card .entry-rate {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background: #f0f4fa;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+
+  .vehicle-expense-row.expense-split-card {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    position: relative;
+  }
+
+  .vehicle-expense-row.expense-split-card .entry-rate {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background: #f0f4fa;
+    border-radius: 6px;
+    font-size: 11px;
   }
 
   /* Vehicle expense list on tablet/mobile: card layout */

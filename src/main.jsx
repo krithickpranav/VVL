@@ -41,12 +41,12 @@ function freshTrip() {
     diesel: [{ id: makeId(), station: 'HP Petrol Pump, Kurnool', date: today, litres: 180, paidByOwner: 17100, paidByDriver: '', amount: 17100 }],
     expenses: {
       otherExpenses: [
-        { id: makeId(), date: today, name: 'Food & meals', amount: 1500 },
-        { id: makeId(), date: today, name: 'Loading / coolie', amount: 800 },
-        { id: makeId(), date: today, name: 'Misc. & phone', amount: 500 },
-        { id: makeId(), date: today, name: 'Kurnool Checkpost', amount: 1200 },
+        { id: makeId(), date: today, name: 'Food & meals', paidByOwner: 1500, paidByDriver: '', amount: 1500 },
+        { id: makeId(), date: today, name: 'Loading / coolie', paidByOwner: 800, paidByDriver: '', amount: 800 },
+        { id: makeId(), date: today, name: 'Misc. & phone', paidByOwner: 500, paidByDriver: '', amount: 500 },
+        { id: makeId(), date: today, name: 'Kurnool Checkpost', paidByOwner: 1200, paidByDriver: '', amount: 1200 },
       ],
-      tolls: [{ id: makeId(), date: today, location: 'Orvakal Toll Plaza', amount: 1850 }],
+      tolls: [{ id: makeId(), date: today, location: 'Orvakal Toll Plaza', paidByOwner: 1850, paidByDriver: '', amount: 1850 }],
       vehicleExpenses: [],
       driverAdvances: [{ id: makeId(), date: today, amount: 5000 }],
       driverBalancePayments: [],
@@ -103,18 +103,32 @@ function normalizeTrip(trip) {
     .map((row) => ({ ...row, id: row.id || makeId() }));
   const freightTotal = freights.reduce((sum, item) => sum + number(item.amount), 0);
   const vehicleExpenses = Array.isArray(expenses.vehicleExpenses)
-    ? expenses.vehicleExpenses.map((row) => ({
-      ...row,
-      id: row.id || makeId(),
-      date: row.date || trip.startDate || today,
-      type: row.type === 'AdBlue refilling' ? 'AdBlue oil refill' : row.type || 'Other',
-    }))
+    ? expenses.vehicleExpenses.map((row) => {
+      const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
+      const hasDriver = row.paidByDriver !== undefined && row.paidByDriver !== '';
+      const paidByOwner = hasOwner ? row.paidByOwner : (hasDriver ? '' : (row.amount ?? ''));
+      const paidByDriver = hasDriver ? row.paidByDriver : '';
+      return {
+        ...row,
+        id: row.id || makeId(),
+        date: row.date || trip.startDate || today,
+        type: row.type === 'AdBlue refilling' ? 'AdBlue oil refill' : row.type || 'Other',
+        paidByOwner,
+        paidByDriver,
+      };
+    })
     : number(expenses.maintenance) ? [{
       id: makeId(), date: trip.startDate || today, type: 'Other', name: 'Maintenance & repair',
-      amount: expenses.maintenance, litres: '', rate: '',
+      amount: expenses.maintenance, paidByOwner: expenses.maintenance, paidByDriver: '', litres: '', rate: '',
     }] : [];
   const otherExpenses = Array.isArray(expenses.otherExpenses)
-    ? expenses.otherExpenses.map((row) => ({ ...row, id: row.id || makeId(), date: row.date || trip.startDate || today }))
+    ? expenses.otherExpenses.map((row) => {
+      const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
+      const hasDriver = row.paidByDriver !== undefined && row.paidByDriver !== '';
+      const paidByOwner = hasOwner ? row.paidByOwner : (hasDriver ? '' : (row.amount ?? ''));
+      const paidByDriver = hasDriver ? row.paidByDriver : '';
+      return { ...row, id: row.id || makeId(), date: row.date || trip.startDate || today, paidByOwner, paidByDriver };
+    })
     : [
       ['Food & meals', expenses.food],
       ['Loading / coolie', expenses.lock],
@@ -170,7 +184,13 @@ function normalizeTrip(trip) {
       driverAdvances,
       driverBalancePayments,
       tolls: Array.isArray(expenses.tolls)
-        ? expenses.tolls.map((row) => ({ ...row, id: row.id || makeId(), date: row.date || trip.startDate || today }))
+        ? expenses.tolls.map((row) => {
+          const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
+          const hasDriver = row.paidByDriver !== undefined && row.paidByDriver !== '';
+          const paidByOwner = hasOwner ? row.paidByOwner : (hasDriver ? '' : (row.amount ?? ''));
+          const paidByDriver = hasDriver ? row.paidByDriver : '';
+          return { ...row, id: row.id || makeId(), date: row.date || trip.startDate || today, paidByOwner, paidByDriver };
+        })
         : [{
           id: makeId(), date: trip.startDate || today, location: 'FASTag tolls', amount: number(expenses.tolls),
         }],
@@ -197,21 +217,44 @@ function calculate(trip) {
 
   const dieselTotal = dieselOwner + dieselDriver;
 
-  const tolls = expenses.tolls.reduce((sum, item) => sum + number(item.amount), 0);
-  const otherExpenses = expenses.otherExpenses.reduce((sum, item) => sum + number(item.amount), 0);
-  const vehicleExpenses = expenses.vehicleExpenses.reduce((sum, item) => sum + (
-    item.type === 'AdBlue oil refill' ? number(item.litres) * number(item.rate) : number(item.amount)
-  ), 0);
+  const tollsOwner = expenses.tolls.reduce((sum, item) => {
+    if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
+    if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum; // driver paid all
+    return sum + number(item.amount);
+  }, 0);
+  const tollsDriver = expenses.tolls.reduce((sum, item) =>
+    (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
+  const tolls = tollsOwner + tollsDriver;
+
+  const otherOwner = expenses.otherExpenses.reduce((sum, item) => {
+    if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
+    if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum;
+    return sum + number(item.amount);
+  }, 0);
+  const otherDriver = expenses.otherExpenses.reduce((sum, item) =>
+    (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
+  const otherExpenses = otherOwner + otherDriver;
+
+  const vehicleOwner = expenses.vehicleExpenses.reduce((sum, item) => {
+    const base = item.type === 'AdBlue oil refill' ? number(item.litres) * number(item.rate) : number(item.amount);
+    if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
+    if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum;
+    return sum + base;
+  }, 0);
+  const vehicleDriver = expenses.vehicleExpenses.reduce((sum, item) =>
+    (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
+  const vehicleExpenses = vehicleOwner + vehicleDriver;
 
   const grossDriverAdvance = expenses.driverAdvances.reduce((sum, item) => sum + number(item.amount), 0);
-  // Diesel paid by driver is subtracted from driver advance
-  const driverAdvance = grossDriverAdvance - dieselDriver;
+  // All driver-paid expenses are subtracted from driver advance
+  const totalDriverExpenses = dieselDriver + tollsDriver + otherDriver + vehicleDriver;
+  const driverAdvance = grossDriverAdvance - totalDriverExpenses;
 
   const driverBalancePaid = expenses.driverBalancePayments.reduce((sum, item) => sum + number(item.amount), 0);
   const driverBata = freight * number(expenses.driverBataPct) / 100;
 
-  // Diesel paid by owner is subtracted as an operating expense
-  const operatingExpenses = dieselOwner + otherExpenses + tolls + vehicleExpenses + driverBata;
+  // Owner-paid portions are operating expenses; driver-paid portions reduce driver advance
+  const operatingExpenses = dieselOwner + otherOwner + tollsOwner + vehicleOwner + driverBata;
   const commission = freight * number(expenses.commissionPct) / 100;
   const netProfit = freight - operatingExpenses;
   const finalPayable = commission - driverAdvance - driverBalancePaid;
@@ -225,9 +268,16 @@ function calculate(trip) {
     dieselDriver,
     dieselTotal,
     otherExpenses,
+    otherOwner,
+    otherDriver,
     tolls,
+    tollsOwner,
+    tollsDriver,
     vehicleExpenses,
+    vehicleOwner,
+    vehicleDriver,
     grossDriverAdvance,
+    totalDriverExpenses,
     driverAdvance,
     driverBalancePaid,
     driverBata,
@@ -336,7 +386,18 @@ function App() {
       ...current,
       expenses: {
         ...current.expenses,
-        [group]: current.expenses[group].map((row) => row.id === id ? { ...row, [key]: value } : row),
+        [group]: current.expenses[group].map((row) => {
+          if (row.id !== id) return row;
+          const updated = { ...row, [key]: value };
+          if (['tolls', 'otherExpenses', 'vehicleExpenses'].includes(group)) {
+            const o = key === 'paidByOwner' ? value : updated.paidByOwner;
+            const d = key === 'paidByDriver' ? value : updated.paidByDriver;
+            if (o !== undefined || d !== undefined) {
+              updated.amount = (number(o) + number(d)) || '';
+            }
+          }
+          return updated;
+        }),
       },
     }));
   };
@@ -346,14 +407,14 @@ function App() {
       ...(group === 'freights'
         ? { from: '', to: '', material: '', weight: '', amount: '', received: '' }
         : group === 'vehicleExpenses'
-          ? { date: today, type: 'Tyre puncture', name: '', amount: '', litres: '', rate: '' }
+          ? { date: today, type: 'Tyre puncture', name: '', paidByOwner: '', paidByDriver: '', amount: '', litres: '', rate: '' }
           : group === 'otherExpenses'
-            ? { date: today, name: '', amount: '' }
+            ? { date: today, name: '', paidByOwner: '', paidByDriver: '', amount: '' }
           : group === 'driverAdvances'
             ? { date: today, amount: '' }
             : group === 'driverBalancePayments'
               ? { date: today, amount: '' }
-            : { date: today, location: '', amount: '' }),
+            : { date: today, location: '', paidByOwner: '', paidByDriver: '', amount: '' }),
     };
     if (group === 'diesel') Object.assign(blank, { station: '', litres: '', paidByOwner: '', paidByDriver: '', amount: '' });
     if (group === 'freights' || group === 'diesel') {
@@ -555,14 +616,20 @@ function App() {
       ['Freight pending', reportTotals.pending],
       ['Diesel expense (Paid by owner)', reportTotals.dieselOwner],
       ...(reportTotals.dieselDriver > 0 ? [['Diesel paid by driver', reportTotals.dieselDriver]] : []),
-      ['Other expenses', reportTotals.otherExpenses],
-      ['Toll expense', reportTotals.tolls],
-      ['Bill expenses', reportTotals.vehicleExpenses],
+      ['Other expenses (Paid by owner)', reportTotals.otherOwner],
+      ...(reportTotals.otherDriver > 0 ? [['Other expenses paid by driver', reportTotals.otherDriver]] : []),
+      ['Toll expense (Paid by owner)', reportTotals.tollsOwner],
+      ...(reportTotals.tollsDriver > 0 ? [['Tolls paid by driver', reportTotals.tollsDriver]] : []),
+      ['Bill expenses (Paid by owner)', reportTotals.vehicleOwner],
+      ...(reportTotals.vehicleDriver > 0 ? [['Bill expenses paid by driver', reportTotals.vehicleDriver]] : []),
       [`Driver bata (${reportTotals.driverBataPct}%)`, reportTotals.driverBata],
       ['Total operating expenses', reportTotals.operatingExpenses],
       ['Net profit', reportTotals.netProfit],
       ['Driver advance paid (Gross)', reportTotals.grossDriverAdvance],
       ...(reportTotals.dieselDriver > 0 ? [['Less: Diesel paid by driver', -reportTotals.dieselDriver]] : []),
+      ...(reportTotals.tollsDriver > 0 ? [['Less: Tolls paid by driver', -reportTotals.tollsDriver]] : []),
+      ...(reportTotals.otherDriver > 0 ? [['Less: Other expenses paid by driver', -reportTotals.otherDriver]] : []),
+      ...(reportTotals.vehicleDriver > 0 ? [['Less: Bill expenses paid by driver', -reportTotals.vehicleDriver]] : []),
       ['Net driver advance', reportTotals.driverAdvance],
       ['Driver balance paid', reportTotals.driverBalancePaid],
       ['Driver settlement', reportTotals.finalPayable],
@@ -852,8 +919,26 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
             <strong className="positive">- {amount(totals.dieselDriver)}</strong>
           </div>
         )}
+        {totals.tollsDriver > 0 && (
+          <div className="driver-advance-adjustment">
+            <span>Less: Tolls paid by driver (subtracted from advance)</span>
+            <strong className="positive">- {amount(totals.tollsDriver)}</strong>
+          </div>
+        )}
+        {totals.otherDriver > 0 && (
+          <div className="driver-advance-adjustment">
+            <span>Less: Other expenses paid by driver (subtracted from advance)</span>
+            <strong className="positive">- {amount(totals.otherDriver)}</strong>
+          </div>
+        )}
+        {totals.vehicleDriver > 0 && (
+          <div className="driver-advance-adjustment">
+            <span>Less: Bill expenses paid by driver (subtracted from advance)</span>
+            <strong className="positive">- {amount(totals.vehicleDriver)}</strong>
+          </div>
+        )}
         <div className="driver-advance-net">
-          <span>Net advance (advance less driver diesel)</span>
+          <span>Net advance (advance less all driver-paid expenses)</span>
           <strong>{amount(totals.driverAdvance)}</strong>
         </div>
         <DriverPaymentEntries group="driverBalancePayments" title="Driver balance payments" rows={trip.expenses.driverBalancePayments}
@@ -875,9 +960,15 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
 }
 
 function BillExpenseEntries({ rows, updateRow, addRow, removeRow }) {
-  const total = rows.reduce((sum, row) => sum + (row.type === 'AdBlue oil refill'
-    ? number(row.litres) * number(row.rate)
-    : number(row.amount)), 0);
+  const ownerTotal = rows.reduce((sum, row) => {
+    const base = row.type === 'AdBlue oil refill' ? number(row.litres) * number(row.rate) : number(row.amount);
+    if (row.paidByOwner !== undefined && row.paidByOwner !== '') return sum + number(row.paidByOwner);
+    if (row.paidByDriver !== undefined && row.paidByDriver !== '') return sum;
+    return sum + base;
+  }, 0);
+  const driverTotal = rows.reduce((sum, row) =>
+    (row.paidByDriver !== undefined && row.paidByDriver !== '') ? sum + number(row.paidByDriver) : sum, 0);
+  const total = ownerTotal + driverTotal;
 
   return (
     <>
@@ -889,8 +980,9 @@ function BillExpenseEntries({ rows, updateRow, addRow, removeRow }) {
         {rows.map((row, index) => {
           const isAdBlue = row.type === 'AdBlue oil refill';
           const isOther = row.type === 'Other';
+          const baseAmount = isAdBlue ? number(row.litres) * number(row.rate) : number(row.amount);
           return (
-            <div className="vehicle-expense-row" key={row.id}>
+            <div className="vehicle-expense-row expense-split-card" key={row.id}>
               <Field label="Date" type="date" value={row.date} onChange={(value) => updateRow('vehicleExpenses', row.id, 'date', value)} />
               <label className="field"><span>Expense type</span>
                 <select value={row.type || 'Other'} onChange={(event) => updateRow('vehicleExpenses', row.id, 'type', event.target.value)}>
@@ -906,8 +998,12 @@ function BillExpenseEntries({ rows, updateRow, addRow, removeRow }) {
               {isAdBlue
                 ? <Field label="Rate / litre (₹)" type="number" min="0" step="0.01" value={row.rate} onChange={(value) => updateRow('vehicleExpenses', row.id, 'rate', value)} />
                 : <div className="vehicle-expense-placeholder"><span>Rate / litre</span><strong>—</strong></div>}
-              <Field label="Amount (₹)" type="number" min="0" value={isAdBlue ? number(row.litres) * number(row.rate) : row.amount}
-                onChange={(value) => updateRow('vehicleExpenses', row.id, 'amount', value)} readOnly={isAdBlue} />
+              <Field label="Paid by owner (₹)" type="number" min="0" value={row.paidByOwner ?? ''} onChange={(value) => updateRow('vehicleExpenses', row.id, 'paidByOwner', value)} placeholder="0" />
+              <Field label="Paid by driver (₹)" type="number" min="0" value={row.paidByDriver ?? ''} onChange={(value) => updateRow('vehicleExpenses', row.id, 'paidByDriver', value)} placeholder="0" />
+              <div className="entry-rate">
+                <span>Total amount</span>
+                <strong>{amount(baseAmount || (number(row.paidByOwner) + number(row.paidByDriver)))}</strong>
+              </div>
               <button className="icon-button row-delete" type="button" onClick={() => removeRow('vehicleExpenses', row.id)}
                 aria-label={`Remove vehicle expense ${index + 1}`}>×</button>
             </div>
@@ -915,29 +1011,46 @@ function BillExpenseEntries({ rows, updateRow, addRow, removeRow }) {
         })}
         {!rows.length && <div className="empty-row">No bill expenses added yet.</div>}
       </div>
-      <div className="total-strip"><span>Total bill expenses</span><strong>{amount(total)}</strong></div>
+      <div className="total-strip diesel-summary-strip">
+        <div><span>Paid by owner (expense): </span><strong>{amount(ownerTotal)}</strong></div>
+        <div><span>Paid by driver (less advance): </span><strong>{amount(driverTotal)}</strong></div>
+        <div><span>Total bill expenses: </span><strong>{amount(total)}</strong></div>
+      </div>
     </>
   );
 }
 
 function OtherExpenseEntries({ rows, updateRow, addRow, removeRow }) {
-  const total = rows.reduce((sum, row) => sum + number(row.amount), 0);
+  const ownerTotal = rows.reduce((sum, row) => {
+    if (row.paidByOwner !== undefined && row.paidByOwner !== '') return sum + number(row.paidByOwner);
+    if (row.paidByDriver !== undefined && row.paidByDriver !== '') return sum;
+    return sum + number(row.amount);
+  }, 0);
+  const driverTotal = rows.reduce((sum, row) =>
+    (row.paidByDriver !== undefined && row.paidByDriver !== '') ? sum + number(row.paidByDriver) : sum, 0);
+  const total = ownerTotal + driverTotal;
   return (
     <div className="repeatable-block">
       <div className="repeatable-heading"><strong>Other expense entries</strong>
         <Button type="button" onClick={() => addRow('otherExpenses')}>＋ Add entry</Button>
       </div>
       {rows.map((row, index) => (
-        <div className="repeatable-row other-expense-row" key={row.id}>
+        <div className="repeatable-row other-expense-row expense-split-card" key={row.id}>
           <Field label="Date" type="date" value={row.date} onChange={(value) => updateRow('otherExpenses', row.id, 'date', value)} />
           <Field label="Expense name" value={row.name} onChange={(value) => updateRow('otherExpenses', row.id, 'name', value)} placeholder="e.g. Food, loading, or phone" />
-          <Field label="Amount (₹)" type="number" min="0" value={row.amount} onChange={(value) => updateRow('otherExpenses', row.id, 'amount', value)} />
+          <Field label="Paid by owner (₹)" type="number" min="0" value={row.paidByOwner ?? ''} onChange={(value) => updateRow('otherExpenses', row.id, 'paidByOwner', value)} placeholder="0" />
+          <Field label="Paid by driver (₹)" type="number" min="0" value={row.paidByDriver ?? ''} onChange={(value) => updateRow('otherExpenses', row.id, 'paidByDriver', value)} placeholder="0" />
+          <div className="entry-rate"><span>Total</span><strong>{amount(number(row.paidByOwner) + number(row.paidByDriver) || number(row.amount))}</strong></div>
           <button className="icon-button row-delete" type="button" onClick={() => removeRow('otherExpenses', row.id)}
             aria-label={`Remove other expense ${index + 1}`}>×</button>
         </div>
       ))}
       {!rows.length && <div className="empty-row">No other expenses recorded.</div>}
-      <div className="total-strip"><span>Total other expenses</span><strong>{amount(total)}</strong></div>
+      <div className="total-strip diesel-summary-strip">
+        <div><span>Paid by owner (expense): </span><strong>{amount(ownerTotal)}</strong></div>
+        <div><span>Paid by driver (less advance): </span><strong>{amount(driverTotal)}</strong></div>
+        <div><span>Total other expenses: </span><strong>{amount(total)}</strong></div>
+      </div>
     </div>
   );
 }
@@ -964,17 +1077,31 @@ function DriverPaymentEntries({ group, title, rows, amountLabel, totalLabel, emp
 }
 
 function RepeatableEntries({ title, rows, group, updateRow, addRow, removeRow, locationLabel }) {
+  const ownerTotal = rows.reduce((sum, row) => {
+    if (row.paidByOwner !== undefined && row.paidByOwner !== '') return sum + number(row.paidByOwner);
+    if (row.paidByDriver !== undefined && row.paidByDriver !== '') return sum;
+    return sum + number(row.amount);
+  }, 0);
+  const driverTotal = rows.reduce((sum, row) =>
+    (row.paidByDriver !== undefined && row.paidByDriver !== '') ? sum + number(row.paidByDriver) : sum, 0);
   return (
     <div className="repeatable-block">
       <div className="repeatable-heading"><strong>{title}</strong><Button type="button" onClick={() => addRow(group)}>＋ Add entry</Button></div>
       {rows.map((row, index) => (
-        <div className="repeatable-row" key={row.id}>
+        <div className="repeatable-row expense-split-card" key={row.id}>
           <Field label="Date" type="date" value={row.date} onChange={(value) => updateRow(group, row.id, 'date', value)} />
           <Field label={locationLabel} value={row.location} onChange={(value) => updateRow(group, row.id, 'location', value)} />
-          <Field label="Amount (₹)" type="number" min="0" value={row.amount} onChange={(value) => updateRow(group, row.id, 'amount', value)} />
+          <Field label="Paid by owner (₹)" type="number" min="0" value={row.paidByOwner ?? ''} onChange={(value) => updateRow(group, row.id, 'paidByOwner', value)} placeholder="0" />
+          <Field label="Paid by driver (₹)" type="number" min="0" value={row.paidByDriver ?? ''} onChange={(value) => updateRow(group, row.id, 'paidByDriver', value)} placeholder="0" />
+          <div className="entry-rate"><span>Total</span><strong>{amount(number(row.paidByOwner) + number(row.paidByDriver) || number(row.amount))}</strong></div>
           <button className="icon-button row-delete" type="button" onClick={() => removeRow(group, row.id)} aria-label={`Remove ${title} entry ${index + 1}`}>×</button>
         </div>
       ))}
+      <div className="total-strip diesel-summary-strip">
+        <div><span>Paid by owner (expense): </span><strong>{amount(ownerTotal)}</strong></div>
+        <div><span>Paid by driver (less advance): </span><strong>{amount(driverTotal)}</strong></div>
+        <div><span>Total tolls: </span><strong>{amount(ownerTotal + driverTotal)}</strong></div>
+      </div>
     </div>
   );
 }
@@ -984,9 +1111,12 @@ function Settlement({ trip, totals, updateExpense }) {
     ['Freight collection', totals.freight, 'positive'],
     ['Diesel expense (Paid by owner)', -totals.dieselOwner],
     ...(totals.dieselDriver > 0 ? [['Diesel paid by driver (adjusted in advance)', -totals.dieselDriver, 'neutral']] : []),
-    ['Other expenses', -totals.otherExpenses],
-    ['Toll expense', -totals.tolls],
-    ['Bill expenses', -totals.vehicleExpenses],
+    ['Other expenses (Paid by owner)', -totals.otherOwner],
+    ...(totals.otherDriver > 0 ? [['Other expenses paid by driver (adjusted in advance)', -totals.otherDriver, 'neutral']] : []),
+    ['Toll expense (Paid by owner)', -totals.tollsOwner],
+    ...(totals.tollsDriver > 0 ? [['Tolls paid by driver (adjusted in advance)', -totals.tollsDriver, 'neutral']] : []),
+    ['Bill expenses (Paid by owner)', -totals.vehicleOwner],
+    ...(totals.vehicleDriver > 0 ? [['Bill expenses paid by driver (adjusted in advance)', -totals.vehicleDriver, 'neutral']] : []),
     [`Driver bata (${totals.driverBataPct}%)`, -totals.driverBata],
   ];
   return (
@@ -1014,6 +1144,15 @@ function Settlement({ trip, totals, updateExpense }) {
           <div><span>Driver advance paid (Gross)</span><strong>{amount(totals.grossDriverAdvance)}</strong></div>
           {totals.dieselDriver > 0 && (
             <div><span>Less: Diesel paid by driver</span><strong className="positive">- {amount(totals.dieselDriver)}</strong></div>
+          )}
+          {totals.tollsDriver > 0 && (
+            <div><span>Less: Tolls paid by driver</span><strong className="positive">- {amount(totals.tollsDriver)}</strong></div>
+          )}
+          {totals.otherDriver > 0 && (
+            <div><span>Less: Other expenses paid by driver</span><strong className="positive">- {amount(totals.otherDriver)}</strong></div>
+          )}
+          {totals.vehicleDriver > 0 && (
+            <div><span>Less: Bill expenses paid by driver</span><strong className="positive">- {amount(totals.vehicleDriver)}</strong></div>
           )}
           <div><span>Net advance adjusted</span><strong>{amount(totals.driverAdvance)}</strong></div>
           <div><span>Less: balance payments recorded</span><strong>{amount(totals.driverBalancePaid)}</strong></div>
