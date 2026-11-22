@@ -51,7 +51,7 @@ function freshTrip() {
       vehicleExpenses: [],
       driverAdvances: [{ id: makeId(), date: today, amount: 5000 }],
       driverBalancePayments: [],
-      driverBataPct: 5,
+      driverBataPct: 0,
       commissionPct: 15,
     },
   };
@@ -725,7 +725,7 @@ function App() {
       ...(reportTotals.tollsDriver > 0 ? [['Tolls paid by driver', reportTotals.tollsDriver]] : []),
       ['Bill expenses (Paid by owner)', reportTotals.vehicleOwner],
       ...(reportTotals.vehicleDriver > 0 ? [['Bill expenses paid by driver', reportTotals.vehicleDriver]] : []),
-      [`Driver bata (${reportTotals.driverBataPct}%)`, reportTotals.driverBata],
+      ...(reportTotals.driverBata > 0 ? [[`Driver bata (${reportTotals.driverBataPct}%)`, reportTotals.driverBata]] : []),
       ['Total operating expenses', reportTotals.operatingExpenses],
       ['Net profit', reportTotals.netProfit],
       ['Driver advance paid (Gross)', reportTotals.grossDriverAdvance],
@@ -1073,11 +1073,6 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
           <strong className={totals.finalPayable < 0 ? 'negative' : 'positive'}>{amount(Math.abs(totals.finalPayable))}</strong>
           <small>{totals.finalPayable < 0 ? 'Overpaid' : 'Remaining to pay'}</small>
         </div>
-        <div className="driver-bata-row">
-          <Field label="Driver bata (% of freight)" type="number" min="0" max="100" step="0.1"
-            value={trip.expenses.driverBataPct} onChange={(value) => updateExpense('driverBataPct', value)} />
-          <div className="calculated-field"><span>Calculated driver bata</span><strong>{amount(totals.driverBata)}</strong></div>
-        </div>
       </section>
     </>
   );
@@ -1241,7 +1236,7 @@ function Settlement({ trip, totals, updateExpense }) {
     ...(totals.tollsDriver > 0 ? [['Tolls paid by driver (adjusted in advance)', -totals.tollsDriver, 'neutral']] : []),
     ['Bill expenses (Paid by owner)', -totals.vehicleOwner],
     ...(totals.vehicleDriver > 0 ? [['Bill expenses paid by driver (adjusted in advance)', -totals.vehicleDriver, 'neutral']] : []),
-    [`Driver bata (${totals.driverBataPct}%)`, -totals.driverBata],
+    ...(totals.driverBata > 0 ? [[`Driver bata (${totals.driverBataPct}%)`, -totals.driverBata]] : []),
   ];
   return (
     <>
