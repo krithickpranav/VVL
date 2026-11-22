@@ -25,31 +25,101 @@ const amount = (value) => currency.format(Number(value) || 0);
 const number = (value) => Number(value) || 0;
 const makeId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 const today = new Date().toISOString().slice(0, 10);
+const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
-function freshTrip() {
-  return {
-    tripNumber: 'NOV 26-001',
-    truck: '',
-    driver: 'Rajesh Kumar',
-    startDate: today,
-    endDate: today,
-    startKm: 45210,
-    endKm: 46120,
-    freights: [
-      { id: makeId(), from: 'Hyderabad', to: 'Bangalore', material: 'Steel Coils', weight: 15.5, amount: 32000, received: 1000 },
-      { id: makeId(), from: 'Bangalore', to: 'Chennai', material: 'General Cargo', weight: 12, amount: 24000, received: 800 },
-    ],
-    diesel: [{ id: makeId(), station: 'HP Petrol Pump, Kurnool', date: today, litres: 180, paidByOwner: 17100, paidByDriver: '', amount: 17100 }],
-    expenses: {
-      otherExpenses: [
-        { id: makeId(), date: today, name: 'Food & meals', paidByOwner: 1500, paidByDriver: '', amount: 1500 },
-        { id: makeId(), date: today, name: 'Loading / coolie', paidByOwner: 800, paidByDriver: '', amount: 800 },
-        { id: makeId(), date: today, name: 'Misc. & phone', paidByOwner: 500, paidByDriver: '', amount: 500 },
-        { id: makeId(), date: today, name: 'Kurnool Checkpost', paidByOwner: 1200, paidByDriver: '', amount: 1200 },
+function getNextTripNumber(existingTrips = [], dateStr = today) {
+  let monthStr = 'NOV';
+  let yearStr = '26';
+
+  if (typeof dateStr === 'string' && dateStr.includes('-')) {
+    const parts = dateStr.split('-');
+    if (parts.length >= 2) {
+      const yearNum = parseInt(parts[0], 10);
+      const monthNum = parseInt(parts[1], 10);
+      if (!isNaN(monthNum) && monthNum >= 1 && monthNum <= 12) {
+        monthStr = MONTH_NAMES[monthNum - 1];
+      }
+      if (!isNaN(yearNum)) {
+        yearStr = String(yearNum).slice(-2);
+      }
+    }
+  }
+
+  // Matches NOV 26-001, NOV26-001, NOV 26-002, etc.
+  const regex = new RegExp(`^${monthStr}\\s*${yearStr}[\\s-]*(\\d+)`, 'i');
+  let maxSeq = 0;
+  let useSpace = true;
+
+  for (const t of (existingTrips || [])) {
+    const raw = String(t.tripNumber || '').trim();
+    const match = raw.match(regex);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxSeq) {
+        maxSeq = num;
+      }
+      if (/^[A-Za-z]{3}\d{2}/.test(raw)) {
+        useSpace = false;
+      } else if (/^[A-Za-z]{3}\\s+\\d{2}/.test(raw)) {
+        useSpace = true;
+      }
+    }
+  }
+
+  const nextSeq = String(maxSeq + 1).padStart(3, '0');
+  return useSpace ? `${monthStr} ${yearStr}-${nextSeq}` : `${monthStr}${yearStr}-${nextSeq}`;
+}
+
+function freshTrip(existingTrips = [], dateStr = today) {
+  const nextNumber = getNextTripNumber(existingTrips, dateStr);
+  const isFirstEver = (!existingTrips || existingTrips.length === 0);
+
+  if (isFirstEver) {
+    return {
+      tripNumber: nextNumber,
+      truck: '',
+      driver: 'Rajesh Kumar',
+      startDate: dateStr || today,
+      endDate: dateStr || today,
+      startKm: 45210,
+      endKm: 46120,
+      freights: [
+        { id: makeId(), from: 'Hyderabad', to: 'Bangalore', material: 'Steel Coils', weight: 15.5, amount: 32000, received: 1000 },
+        { id: makeId(), from: 'Bangalore', to: 'Chennai', material: 'General Cargo', weight: 12, amount: 24000, received: 800 },
       ],
-      tolls: [{ id: makeId(), date: today, location: 'Orvakal Toll Plaza', paidByOwner: 1850, paidByDriver: '', amount: 1850 }],
+      diesel: [{ id: makeId(), station: 'HP Petrol Pump, Kurnool', date: dateStr || today, litres: 180, paidByOwner: 17100, paidByDriver: '', amount: 17100 }],
+      expenses: {
+        otherExpenses: [
+          { id: makeId(), date: dateStr || today, name: 'Food & meals', paidByOwner: 1500, paidByDriver: '', amount: 1500 },
+          { id: makeId(), date: dateStr || today, name: 'Loading / coolie', paidByOwner: 800, paidByDriver: '', amount: 800 },
+          { id: makeId(), date: dateStr || today, name: 'Misc. & phone', paidByOwner: 500, paidByDriver: '', amount: 500 },
+          { id: makeId(), date: dateStr || today, name: 'Kurnool Checkpost', paidByOwner: 1200, paidByDriver: '', amount: 1200 },
+        ],
+        tolls: [{ id: makeId(), date: dateStr || today, location: 'Orvakal Toll Plaza', paidByOwner: 1850, paidByDriver: '', amount: 1850 }],
+        vehicleExpenses: [],
+        driverAdvances: [{ id: makeId(), date: dateStr || today, amount: 5000 }],
+        driverBalancePayments: [],
+        driverBataPct: 0,
+        commissionPct: 15,
+      },
+    };
+  }
+
+  return {
+    tripNumber: nextNumber,
+    truck: '',
+    driver: '',
+    startDate: dateStr || today,
+    endDate: dateStr || today,
+    startKm: '',
+    endKm: '',
+    freights: [],
+    diesel: [],
+    expenses: {
+      otherExpenses: [],
+      tolls: [],
       vehicleExpenses: [],
-      driverAdvances: [{ id: makeId(), date: today, amount: 5000 }],
+      driverAdvances: [],
       driverBalancePayments: [],
       driverBataPct: 0,
       commissionPct: 15,
@@ -331,8 +401,8 @@ function SectionTitle({ icon, children, action }) {
 
 function App() {
   const [settings, setSettings] = useState(loadSettings);
-  const [trip, setTrip] = useState(freshTrip);
   const [trips, setTrips] = useState(loadTrips);
+  const [trip, setTrip] = useState(() => freshTrip(loadTrips()));
   const [page, setPage] = useState('create');
   const [step, setStep] = useState(0);
   const [editingId, setEditingId] = useState(null);
@@ -390,7 +460,15 @@ function App() {
                 remoteMap.set(locTrip.id, locTrip);
               }
             });
-            return Array.from(remoteMap.values());
+            const allTrips = Array.from(remoteMap.values());
+            // Update create form trip number if it's currently on default
+            setTrip((cur) => {
+              if (!editingId && (!cur.tripNumber || cur.tripNumber === getNextTripNumber([], cur.startDate))) {
+                return { ...cur, tripNumber: getNextTripNumber(allTrips, cur.startDate) };
+              }
+              return cur;
+            });
+            return allTrips;
           });
         }
       }, (err) => {
@@ -402,7 +480,7 @@ function App() {
       setCloudStatus('offline');
     }
     return () => unsubscribe && unsubscribe();
-  }, []);
+  }, [editingId]);
 
   useEffect(() => {
     try {
@@ -518,11 +596,11 @@ function App() {
   const navigate = useCallback((nextPage) => {
     setPage(nextPage);
     if (nextPage === 'create' && !editingId) {
-      setTrip(freshTrip());
+      setTrip(freshTrip(trips));
       setStep(0);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [editingId]);
+  }, [editingId, trips]);
 
   const saveTrip = useCallback((event) => {
     event.preventDefault();
@@ -540,13 +618,17 @@ function App() {
       updatedAt: now,
       totals,
     };
-    setTrips((current) => editingId
-      ? current.map((item) => item.id === editingId ? saved : item)
-      : [saved, ...current]);
+    const updatedTrips = editingId
+      ? trips.map((item) => item.id === editingId ? saved : item)
+      : [saved, ...trips];
+    setTrips(updatedTrips);
     setEditingId(null);
     setPage('reports');
     setToast(`${saved.tripNumber || 'Trip'} saved & backed up to cloud.`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Prime the create form with the next trip number for the month
+    setTrip(freshTrip(updatedTrips));
 
     // Cloud Firestore Sync
     setCloudStatus('syncing');
@@ -835,6 +917,7 @@ function App() {
               updateExpense={updateExpense} updateRow={updateRow} addRow={addRow}
               removeRow={removeRow} saveTrip={saveTrip} editing={Boolean(editingId)}
               transporter={settings.transporter} vehicles={Array.isArray(settings.vehicles) ? settings.vehicles : []}
+              trips={trips}
             />
           )}
           {page === 'dashboard' && (
@@ -894,7 +977,7 @@ function PageHeading({ eyebrow, title, description, action }) {
   );
 }
 
-function TripEditor({ trip, totals, step, setStep, updateTrip, updateExpense, updateRow, addRow, removeRow, saveTrip, editing, transporter, vehicles }) {
+function TripEditor({ trip, totals, step, setStep, updateTrip, updateExpense, updateRow, addRow, removeRow, saveTrip, editing, transporter, vehicles, trips }) {
   const tabs = [
     { title: 'Trip & freight', icon: '↗' },
     { title: 'Fuel & expenses', icon: '⛽' },
@@ -914,7 +997,7 @@ function TripEditor({ trip, totals, step, setStep, updateTrip, updateExpense, up
         ))}
       </div>
       <form className="editor-form" onSubmit={saveTrip}>
-        {step === 0 && <TripDetails trip={trip} updateTrip={updateTrip} totals={totals} addRow={addRow} updateRow={updateRow} removeRow={removeRow} vehicles={vehicles} />}
+        {step === 0 && <TripDetails trip={trip} updateTrip={updateTrip} totals={totals} addRow={addRow} updateRow={updateRow} removeRow={removeRow} vehicles={vehicles} trips={trips} />}
         {step === 1 && <TripExpenses trip={trip} totals={totals} updateExpense={updateExpense} updateRow={updateRow} addRow={addRow} removeRow={removeRow} />}
         {step === 2 && <Settlement trip={trip} totals={totals} updateExpense={updateExpense} />}
         <div className="form-navigation">
@@ -930,13 +1013,19 @@ function TripEditor({ trip, totals, step, setStep, updateTrip, updateExpense, up
   );
 }
 
-function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, vehicles }) {
+function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, vehicles, trips }) {
   return (
     <>
       <section className="panel">
         <SectionTitle icon="↗">Trip information</SectionTitle>
         <div className="form-grid">
-          <Field label="Trip sheet number" value={trip.tripNumber} onChange={(value) => updateTrip('tripNumber', value)} required />
+          <Field
+            label="Trip sheet number"
+            value={trip.tripNumber}
+            onChange={(value) => updateTrip('tripNumber', value)}
+            placeholder={getNextTripNumber(trips, trip.startDate)}
+            required
+          />
           <label className="field"><span>Vehicle number</span><select required value={trip.truck} onChange={(event) => updateTrip('truck', event.target.value)}>
             <option value="">Select a vehicle</option>
             {trip.truck && !vehicles.includes(trip.truck) && <option value={trip.truck}>{trip.truck}</option>}
@@ -944,7 +1033,18 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
           </select></label>
           <Field label="Assigned driver" value={trip.driver} onChange={(value) => updateTrip('driver', value)} required />
           <div className="field-pair">
-            <Field label="Start date" type="date" value={trip.startDate} onChange={(value) => updateTrip('startDate', value)} />
+            <Field
+              label="Start date"
+              type="date"
+              value={trip.startDate}
+              onChange={(value) => {
+                updateTrip('startDate', value);
+                // Auto-update trip number if user hasn't typed a custom one
+                if (!trip.tripNumber || trip.tripNumber === getNextTripNumber(trips, trip.startDate)) {
+                  updateTrip('tripNumber', getNextTripNumber(trips, value));
+                }
+              }}
+            />
             <Field label="End date" type="date" value={trip.endDate} onChange={(value) => updateTrip('endDate', value)} />
           </div>
         </div>
