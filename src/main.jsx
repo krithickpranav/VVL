@@ -418,12 +418,23 @@ function App() {
       unsubscribe = onSnapshot(doc(db, 'settings', 'profile'), (snapshot) => {
         if (snapshot.exists()) {
           const remoteSettings = snapshot.data();
-          setSettings((local) => ({
-            ...DEFAULT_SETTINGS,
-            ...local,
-            ...remoteSettings,
-            vehicles: Array.isArray(remoteSettings.vehicles) ? remoteSettings.vehicles : (local.vehicles || []),
-          }));
+          setSettings((local) => {
+            const mergedVehicles = Array.from(new Set([
+              ...(Array.isArray(local.vehicles) ? local.vehicles : []),
+              ...(Array.isArray(remoteSettings.vehicles) ? remoteSettings.vehicles : []),
+            ])).filter(Boolean);
+
+            return {
+              ...DEFAULT_SETTINGS,
+              ...local,
+              ...remoteSettings,
+              vehicles: mergedVehicles,
+            };
+          });
+        } else {
+          // Initialize remote settings if not yet present in cloud
+          const local = loadSettings();
+          setDoc(doc(db, 'settings', 'profile'), local).catch(() => {});
         }
       }, (err) => {
         console.warn('Settings cloud sync note:', err.message);
@@ -437,40 +448,36 @@ function App() {
   // Firestore: Realtime bidirectional sync for Trips
   useEffect(() => {
     let unsubscribe;
+    let initialSyncDone = false;
     try {
       unsubscribe = onSnapshot(collection(db, 'trips'), (snapshot) => {
         setCloudStatus('synced');
         const remoteTrips = snapshot.docs.map((docSnap) => normalizeTrip(docSnap.data()));
-        if (remoteTrips.length === 0) {
-          // If Cloud is empty on first setup, upload existing local trips so nothing is lost!
+
+        if (!initialSyncDone && remoteTrips.length === 0) {
+          initialSyncDone = true;
+          // Initial migration only if Firestore is completely empty
           const local = loadTrips();
           if (local.length > 0) {
             setCloudStatus('syncing');
             Promise.all(local.map((t) => setDoc(doc(db, 'trips', t.id), t)))
               .then(() => setCloudStatus('synced'))
               .catch(() => setCloudStatus('synced'));
+            return;
           }
-        } else {
-          // Merge remote trips with any local trips not yet uploaded
-          setTrips((currentLocal) => {
-            const remoteMap = new Map(remoteTrips.map((t) => [t.id, t]));
-            currentLocal.forEach((locTrip) => {
-              if (!remoteMap.has(locTrip.id)) {
-                setDoc(doc(db, 'trips', locTrip.id), locTrip).catch(() => {});
-                remoteMap.set(locTrip.id, locTrip);
-              }
-            });
-            const allTrips = Array.from(remoteMap.values());
-            // Update create form trip number if it's currently on default
-            setTrip((cur) => {
-              if (!editingId && (!cur.tripNumber || cur.tripNumber === getNextTripNumber([], cur.startDate))) {
-                return { ...cur, tripNumber: getNextTripNumber(allTrips, cur.startDate) };
-              }
-              return cur;
-            });
-            return allTrips;
-          });
         }
+
+        initialSyncDone = true;
+        // Firestore is the source of truth: deletions, additions, edits reflect cleanly
+        setTrips(remoteTrips);
+
+        // Update create form trip number if it's currently on default
+        setTrip((cur) => {
+          if (!editingId && (!cur.tripNumber || cur.tripNumber === getNextTripNumber([], cur.startDate))) {
+            return { ...cur, tripNumber: getNextTripNumber(remoteTrips, cur.startDate) };
+          }
+          return cur;
+        });
       }, (err) => {
         console.warn('Trips cloud sync note:', err.message);
         setCloudStatus('offline');
@@ -630,6 +637,14 @@ function App() {
     // Prime the create form with the next trip number for the month
     setTrip(freshTrip(updatedTrips));
 
+    // Auto-save vehicle to fleet if it's new
+    if (saved.truck && !settings.vehicles.includes(saved.truck)) {
+      const updatedVehicles = Array.from(new Set([...(settings.vehicles || []), saved.truck]));
+      const updatedSettings = { ...settings, vehicles: updatedVehicles };
+      setSettings(updatedSettings);
+      setDoc(doc(db, 'settings', 'profile'), updatedSettings).catch(() => {});
+    }
+
     // Cloud Firestore Sync
     setCloudStatus('syncing');
     setDoc(doc(db, 'trips', saved.id), saved)
@@ -638,7 +653,7 @@ function App() {
         console.warn('Cloud sync save warning:', err);
         setCloudStatus('offline');
       });
-  }, [trip, editingId, settings.transporter, trips, totals]);
+  }, [trip, editingId, settings, trips, totals]);
 
   const editTrip = useCallback((saved) => {
     const normalized = normalizeTrip(saved);
@@ -653,20 +668,23 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  const deleteTrip = useCallback((id) => {
+  const deleteTrip = useCallback(async (id) => {
     const selected = trips.find((item) => item.id === id);
     if (!selected || !window.confirm(`Delete trip ${selected.tripNumber || ''}? This cannot be undone.`)) return;
+
+    // Immediately update local state
     setTrips((current) => current.filter((item) => item.id !== id));
     setToast('Trip deleted.');
 
     // Cloud Firestore Delete
-    setCloudStatus('syncing');
-    deleteDoc(doc(db, 'trips', id))
-      .then(() => setCloudStatus('synced'))
-      .catch((err) => {
-        console.warn('Cloud delete warning:', err);
-        setCloudStatus('offline');
-      });
+    try {
+      setCloudStatus('syncing');
+      await deleteDoc(doc(db, 'trips', id));
+      setCloudStatus('synced');
+    } catch (err) {
+      console.warn('Cloud delete error:', err);
+      setCloudStatus('offline');
+    }
   }, [trips]);
   const downloadPdf = useCallback(async (savedTrip) => {
     if (pdfLoading) return;
@@ -942,7 +960,7 @@ function App() {
             <Settings settings={settings} setSettings={setSettings} trips={trips.length} />
           )}
           {page === 'vehicles' && (
-            <Vehicles settings={settings} setSettings={setSettings} />
+            <Vehicles settings={settings} setSettings={setSettings} setToast={setToast} />
           )}
         </main>
       </div>
@@ -1026,11 +1044,23 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
             placeholder={getNextTripNumber(trips, trip.startDate)}
             required
           />
-          <label className="field"><span>Vehicle number</span><select required value={trip.truck} onChange={(event) => updateTrip('truck', event.target.value)}>
-            <option value="">Select a vehicle</option>
-            {trip.truck && !vehicles.includes(trip.truck) && <option value={trip.truck}>{trip.truck}</option>}
-            {vehicles.map((vehicle) => <option key={vehicle} value={vehicle}>{vehicle}</option>)}
-          </select></label>
+          <label className="field">
+            <span>Vehicle number</span>
+            <input
+              list="vehicles-datalist"
+              required
+              value={trip.truck || ''}
+              onChange={(event) => updateTrip('truck', event.target.value.toUpperCase())}
+              placeholder="Select or enter vehicle (e.g. AP 28 TC 5542)"
+            />
+            <datalist id="vehicles-datalist">
+              {vehicles.map((vehicle) => (
+                <option key={vehicle} value={vehicle}>
+                  {vehicle}
+                </option>
+              ))}
+            </datalist>
+          </label>
           <Field label="Assigned driver" value={trip.driver} onChange={(value) => updateTrip('driver', value)} required />
           <div className="field-pair">
             <Field
@@ -1550,7 +1580,7 @@ function Settings({ settings, setSettings, trips }) {
   );
 }
 
-function Vehicles({ settings, setSettings }) {
+function Vehicles({ settings, setSettings, setToast }) {
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [error, setError] = useState('');
   const vehicles = Array.isArray(settings.vehicles) ? settings.vehicles : [];
@@ -1566,9 +1596,21 @@ function Vehicles({ settings, setSettings }) {
       setError('That vehicle number has already been added.');
       return;
     }
-    setSettings((current) => ({ ...current, vehicles: [...(Array.isArray(current.vehicles) ? current.vehicles : []), number] }));
+    const updatedVehicles = Array.from(new Set([...vehicles, number]));
+    const updatedSettings = { ...settings, vehicles: updatedVehicles };
+    setSettings(updatedSettings);
+    setDoc(doc(db, 'settings', 'profile'), updatedSettings).catch(() => {});
     setVehicleNumber('');
     setError('');
+    if (setToast) setToast(`Vehicle ${number} added.`);
+  };
+
+  const removeVehicle = (vehicle) => {
+    const updatedVehicles = vehicles.filter((item) => item !== vehicle);
+    const updatedSettings = { ...settings, vehicles: updatedVehicles };
+    setSettings(updatedSettings);
+    setDoc(doc(db, 'settings', 'profile'), updatedSettings).catch(() => {});
+    if (setToast) setToast(`Vehicle ${vehicle} removed.`);
   };
 
   return (
@@ -1586,10 +1628,7 @@ function Vehicles({ settings, setSettings }) {
             <div className="vehicle-row" key={vehicle}>
               <span>{vehicle}</span>
               <button className="icon-button delete-button" type="button" aria-label={`Remove vehicle ${vehicle}`}
-                onClick={() => setSettings((current) => ({
-                  ...current,
-                  vehicles: (Array.isArray(current.vehicles) ? current.vehicles : []).filter((item) => item !== vehicle),
-                }))}>×</button>
+                onClick={() => removeVehicle(vehicle)}>×</button>
             </div>
           )) : <div className="empty-row">No vehicles added yet. Add a vehicle number to select it on trip sheets.</div>}
         </div>
