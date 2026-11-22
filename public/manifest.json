@@ -1,0 +1,23 @@
+{
+  "name": "VVL Trip Accounts",
+  "short_name": "VVL Accounts",
+  "description": "Trip sheets, freight and driver settlements for Vetri Velavan Logistics.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0d1829",
+  "theme_color": "#101d32",
+  "icons": [
+    {
+      "src": "/vetri-velavan-logo.jpeg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/vetri-velavan-logo.jpeg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ],
+  "categories": ["business", "finance", "productivity"]
+}

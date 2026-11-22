@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -80,13 +80,17 @@ function loadSettings() {
   };
 }
 
+// Cache the logo data URL in memory — only fetched once per session
+let _logoDataUrlCache = null;
 async function loadLogoDataUrl() {
+  if (_logoDataUrlCache) return _logoDataUrlCache;
   const response = await fetch(`${import.meta.env.BASE_URL}vetri-velavan-logo.jpeg`);
   if (!response.ok) throw new Error('Unable to load the company logo for the PDF.');
   const bytes = new Uint8Array(await response.arrayBuffer());
   let binary = '';
   bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-  return `data:image/jpeg;base64,${btoa(binary)}`;
+  _logoDataUrlCache = `data:image/jpeg;base64,${btoa(binary)}`;
+  return _logoDataUrlCache;
 }
 
 function loadTrips() {
@@ -333,6 +337,7 @@ function App() {
   const [editingId, setEditingId] = useState(null);
   const [toast, setToast] = useState('');
   const [storageError, setStorageError] = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   useEffect(() => {
     try {
@@ -360,12 +365,14 @@ function App() {
   }, [toast]);
 
   const totals = useMemo(() => calculate(trip), [trip]);
-  const updateTrip = (key, value) => setTrip((current) => ({ ...current, [key]: value }));
-  const updateExpense = (key, value) => setTrip((current) => ({
+
+  const updateTrip = useCallback((key, value) => setTrip((current) => ({ ...current, [key]: value })), []);
+  const updateExpense = useCallback((key, value) => setTrip((current) => ({
     ...current,
     expenses: { ...current.expenses, [key]: value },
-  }));
-  const updateRow = (group, id, key, value) => {
+  })), []);
+
+  const updateRow = useCallback((group, id, key, value) => {
     if (group === 'freights' || group === 'diesel') {
       setTrip((current) => ({
         ...current,
@@ -400,8 +407,9 @@ function App() {
         }),
       },
     }));
-  };
-  const addRow = (group) => {
+  }, []);
+
+  const addRow = useCallback((group) => {
     const blank = {
       id: makeId(),
       ...(group === 'freights'
@@ -425,8 +433,9 @@ function App() {
         expenses: { ...current.expenses, [group]: [...current.expenses[group], blank] },
       }));
     }
-  };
-  const removeRow = (group, id) => {
+  }, []);
+
+  const removeRow = useCallback((group, id) => {
     if (group === 'freights' || group === 'diesel') {
       setTrip((current) => ({ ...current, [group]: current[group].filter((row) => row.id !== id) }));
     } else {
@@ -435,16 +444,18 @@ function App() {
         expenses: { ...current.expenses, [group]: current.expenses[group].filter((row) => row.id !== id) },
       }));
     }
-  };
-  const navigate = (nextPage) => {
+  }, []);
+
+  const navigate = useCallback((nextPage) => {
     setPage(nextPage);
     if (nextPage === 'create' && !editingId) {
       setTrip(freshTrip());
       setStep(0);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-  const saveTrip = (event) => {
+  }, [editingId]);
+
+  const saveTrip = useCallback((event) => {
     event.preventDefault();
     if (!String(trip.truck || '').trim()) {
       setStep(0);
@@ -467,8 +478,9 @@ function App() {
     setPage('reports');
     setToast(`${saved.tripNumber || 'Trip'} saved successfully.`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-  const editTrip = (saved) => {
+  }, [trip, editingId, settings.transporter, trips, totals]);
+
+  const editTrip = useCallback((saved) => {
     const normalized = normalizeTrip(saved);
     setTrip({
       ...freshTrip(),
@@ -479,14 +491,18 @@ function App() {
     setPage('create');
     setStep(0);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-  const deleteTrip = (id) => {
+  }, []);
+
+  const deleteTrip = useCallback((id) => {
     const selected = trips.find((item) => item.id === id);
     if (!selected || !window.confirm(`Delete trip ${selected.tripNumber || ''}? This cannot be undone.`)) return;
     setTrips((current) => current.filter((item) => item.id !== id));
     setToast('Trip deleted.');
-  };
-  const downloadPdf = async (savedTrip) => {
+  }, [trips]);
+  const downloadPdf = useCallback(async (savedTrip) => {
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    setToast('Generating PDF…');
     try {
     const { jsPDF } = await import('jspdf');
     const logoData = await loadLogoDataUrl();
@@ -665,11 +681,14 @@ function App() {
     const filename = `${settings.transporter || DEFAULT_SETTINGS.transporter} ${savedTrip.tripNumber || 'Trip Sheet'}`
       .replace(/[<>:"/\\|?*]+/g, '-').trim();
     doc.save(`${filename}.pdf`);
+    setToast(`PDF saved: ${filename}.pdf`);
     } catch (error) {
       console.error('Unable to generate the trip sheet PDF.', error);
       setToast('Unable to generate the PDF. Please try again.');
+    } finally {
+      setPdfLoading(false);
     }
-  };
+  }, [pdfLoading, settings]);
 
   const sortedTrips = useMemo(() => [...trips].sort((a, b) => new Date(b.updatedAt || b.savedAt) - new Date(a.updatedAt || a.savedAt)), [trips]);
   const overallPending = useMemo(() => sortedTrips.reduce((sum, item) => sum + calculate(item).pending, 0), [sortedTrips]);
@@ -717,13 +736,13 @@ function App() {
             <Dashboard
               trips={sortedTrips} pending={overallPending} onCreate={() => navigate('create')}
               onReports={() => navigate('reports')} onEdit={editTrip} onDelete={deleteTrip} onDownload={downloadPdf}
-              transporter={settings.transporter}
+              transporter={settings.transporter} pdfLoading={pdfLoading}
             />
           )}
           {page === 'reports' && (
             <Reports trips={sortedTrips} pending={overallPending} onCreate={() => navigate('create')}
               onEdit={editTrip} onDelete={deleteTrip} onDownload={downloadPdf}
-              transporter={settings.transporter} />
+              transporter={settings.transporter} pdfLoading={pdfLoading} />
           )}
           {page === 'freight' && (
             <FreightDetails freights={freightDetails} onEdit={(tripId) => {
@@ -1167,9 +1186,9 @@ function MetricCard({ label, value, icon, tone = '' }) {
   return <div className="metric-card"><span className={`metric-icon ${tone}`}>{icon}</span><div><span>{label}</span><strong>{value}</strong></div></div>;
 }
 
-function Dashboard({ trips, pending, onCreate, onReports, onEdit, onDelete, onDownload, transporter }) {
-  const freightTotal = trips.reduce((sum, item) => sum + calculate(item).freight, 0);
-  const profitTotal = trips.reduce((sum, item) => sum + calculate(item).netProfit, 0);
+function Dashboard({ trips, pending, onCreate, onReports, onEdit, onDelete, onDownload, transporter, pdfLoading }) {
+  const freightTotal = useMemo(() => trips.reduce((sum, item) => sum + (item.totals?.freight ?? calculate(item).freight), 0), [trips]);
+  const profitTotal = useMemo(() => trips.reduce((sum, item) => sum + (item.totals?.netProfit ?? calculate(item).netProfit), 0), [trips]);
   return (
     <>
       <PageHeading eyebrow={transporter} title="Dashboard" description="A clear view of your trips and freight accounts."
@@ -1183,16 +1202,16 @@ function Dashboard({ trips, pending, onCreate, onReports, onEdit, onDelete, onDo
       <section className="panel recent-panel">
         <SectionTitle icon="◷" action={<Button onClick={onReports}>View all trips →</Button>}>Recent trips</SectionTitle>
         {trips.length ? <div className="recent-list">{trips.slice(0, 5).map((item) =>
-          <TripListRow key={item.id} trip={item} onEdit={onEdit} onDelete={onDelete} onDownload={onDownload} />)}</div>
+          <TripListRow key={item.id} trip={item} onEdit={onEdit} onDelete={onDelete} onDownload={onDownload} pdfLoading={pdfLoading} />)}</div>
           : <EmptyState title="No trips recorded yet" text="Create a trip sheet to track freight, expenses and driver settlements." action={<Button variant="primary" onClick={onCreate}>Create your first trip</Button>} />}
       </section>
     </>
   );
 }
 
-function Reports({ trips, pending, onCreate, onEdit, onDelete, onDownload, transporter }) {
+function Reports({ trips, pending, onCreate, onEdit, onDelete, onDownload, transporter, pdfLoading }) {
   const [query, setQuery] = useState('');
-  const filtered = trips.filter((trip) => `${trip.tripNumber} ${trip.driver} ${trip.truck}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = useMemo(() => trips.filter((trip) => `${trip.tripNumber} ${trip.driver} ${trip.truck}`.toLowerCase().includes(query.toLowerCase())), [trips, query]);
   return (
     <>
       <PageHeading eyebrow={transporter} title="Saved trips" description="Review trip sheets, freight collection and settlements."
@@ -1206,15 +1225,16 @@ function Reports({ trips, pending, onCreate, onEdit, onDelete, onDownload, trans
           <label className="search-field"><span>⌕</span><input aria-label="Search trips" placeholder="Search trips or drivers" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         </div>
         {filtered.length ? <div className="recent-list">{filtered.map((trip) =>
-          <TripListRow key={trip.id} trip={trip} onEdit={onEdit} onDelete={onDelete} onDownload={onDownload} />)}</div>
+          <TripListRow key={trip.id} trip={trip} onEdit={onEdit} onDelete={onDelete} onDownload={onDownload} pdfLoading={pdfLoading} />)}</div>
           : <EmptyState title={query ? 'No matching trips' : 'No saved trip sheets'} text={query ? 'Try another trip number, driver or vehicle.' : 'Save a trip sheet and it will appear here.'} action={!query && <Button variant="primary" onClick={onCreate}>Create trip</Button>} />}
       </section>
     </>
   );
 }
 
-function TripListRow({ trip, onEdit, onDelete, onDownload }) {
-  const totals = calculate(trip);
+function TripListRow({ trip, onEdit, onDelete, onDownload, pdfLoading }) {
+  // Use pre-computed totals if available (saved on trip), else recalculate
+  const totals = trip.totals && trip.totals.freight !== undefined ? trip.totals : calculate(trip);
   return (
     <article className="trip-list-row">
       <div className="trip-identity">
@@ -1228,7 +1248,9 @@ function TripListRow({ trip, onEdit, onDelete, onDownload }) {
       <div className="trip-actions">
         <Button type="button" onClick={() => onEdit(trip)}>Edit</Button>
         {onDelete && <button className="icon-button delete-button" type="button" aria-label={`Delete ${trip.tripNumber}`} onClick={() => onDelete(trip.id)}>×</button>}
-        <Button variant="primary" type="button" onClick={() => onDownload(trip)}>PDF</Button>
+        <Button variant="primary" type="button" onClick={() => onDownload(trip)} disabled={pdfLoading}>
+          {pdfLoading ? '…' : 'PDF'}
+        </Button>
       </div>
     </article>
   );
