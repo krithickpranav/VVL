@@ -17,6 +17,7 @@ export default defineConfig({
           if (id.includes('html2canvas')) return 'pdf-engine';
           if (id.includes('dompurify') || id.includes('purify')) return 'pdf-engine';
           if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) return 'react-vendor';
+          if (id.includes('firebase')) return 'firebase-vendor';
         },
         // Use content hashes for long-term caching
         chunkFileNames: 'assets/[name]-[hash].js',

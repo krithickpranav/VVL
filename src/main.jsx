@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import { db, collection, doc, setDoc, deleteDoc, onSnapshot } from './firebase';
 
 const STORAGE_KEY = 'logistics-trip-reports-v2';
 const SETTINGS_KEY = 'logistics-trip-settings-v1';
@@ -338,6 +339,70 @@ function App() {
   const [toast, setToast] = useState('');
   const [storageError, setStorageError] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState('connecting'); // 'connecting' | 'synced' | 'syncing' | 'offline'
+
+  // Firestore: Realtime sync for Settings
+  useEffect(() => {
+    let unsubscribe;
+    try {
+      unsubscribe = onSnapshot(doc(db, 'settings', 'profile'), (snapshot) => {
+        if (snapshot.exists()) {
+          const remoteSettings = snapshot.data();
+          setSettings((local) => ({
+            ...DEFAULT_SETTINGS,
+            ...local,
+            ...remoteSettings,
+            vehicles: Array.isArray(remoteSettings.vehicles) ? remoteSettings.vehicles : (local.vehicles || []),
+          }));
+        }
+      }, (err) => {
+        console.warn('Settings cloud sync note:', err.message);
+      });
+    } catch (e) {
+      console.warn('Firebase init note:', e);
+    }
+    return () => unsubscribe && unsubscribe();
+  }, []);
+
+  // Firestore: Realtime bidirectional sync for Trips
+  useEffect(() => {
+    let unsubscribe;
+    try {
+      unsubscribe = onSnapshot(collection(db, 'trips'), (snapshot) => {
+        setCloudStatus('synced');
+        const remoteTrips = snapshot.docs.map((docSnap) => normalizeTrip(docSnap.data()));
+        if (remoteTrips.length === 0) {
+          // If Cloud is empty on first setup, upload existing local trips so nothing is lost!
+          const local = loadTrips();
+          if (local.length > 0) {
+            setCloudStatus('syncing');
+            Promise.all(local.map((t) => setDoc(doc(db, 'trips', t.id), t)))
+              .then(() => setCloudStatus('synced'))
+              .catch(() => setCloudStatus('synced'));
+          }
+        } else {
+          // Merge remote trips with any local trips not yet uploaded
+          setTrips((currentLocal) => {
+            const remoteMap = new Map(remoteTrips.map((t) => [t.id, t]));
+            currentLocal.forEach((locTrip) => {
+              if (!remoteMap.has(locTrip.id)) {
+                setDoc(doc(db, 'trips', locTrip.id), locTrip).catch(() => {});
+                remoteMap.set(locTrip.id, locTrip);
+              }
+            });
+            return Array.from(remoteMap.values());
+          });
+        }
+      }, (err) => {
+        console.warn('Trips cloud sync note:', err.message);
+        setCloudStatus('offline');
+      });
+    } catch (e) {
+      console.warn('Firebase trips listener note:', e);
+      setCloudStatus('offline');
+    }
+    return () => unsubscribe && unsubscribe();
+  }, []);
 
   useEffect(() => {
     try {
@@ -356,6 +421,10 @@ function App() {
       console.error('Unable to save settings to local storage.', error);
       setStorageError('Your browser could not save settings. Check available storage and try again.');
     }
+    // Sync settings to Firestore
+    try {
+      setDoc(doc(db, 'settings', 'profile'), settings).catch(() => {});
+    } catch (e) {}
   }, [settings]);
 
   useEffect(() => {
@@ -476,8 +545,17 @@ function App() {
       : [saved, ...current]);
     setEditingId(null);
     setPage('reports');
-    setToast(`${saved.tripNumber || 'Trip'} saved successfully.`);
+    setToast(`${saved.tripNumber || 'Trip'} saved & backed up to cloud.`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Cloud Firestore Sync
+    setCloudStatus('syncing');
+    setDoc(doc(db, 'trips', saved.id), saved)
+      .then(() => setCloudStatus('synced'))
+      .catch((err) => {
+        console.warn('Cloud sync save warning:', err);
+        setCloudStatus('offline');
+      });
   }, [trip, editingId, settings.transporter, trips, totals]);
 
   const editTrip = useCallback((saved) => {
@@ -498,6 +576,15 @@ function App() {
     if (!selected || !window.confirm(`Delete trip ${selected.tripNumber || ''}? This cannot be undone.`)) return;
     setTrips((current) => current.filter((item) => item.id !== id));
     setToast('Trip deleted.');
+
+    // Cloud Firestore Delete
+    setCloudStatus('syncing');
+    deleteDoc(doc(db, 'trips', id))
+      .then(() => setCloudStatus('synced'))
+      .catch((err) => {
+        console.warn('Cloud delete warning:', err);
+        setCloudStatus('offline');
+      });
   }, [trips]);
   const downloadPdf = useCallback(async (savedTrip) => {
     if (pdfLoading) return;
@@ -714,13 +801,31 @@ function App() {
           <NavButton active={page === 'vehicles'} icon="▰" onClick={() => navigate('vehicles')}>My vehicle</NavButton>
           <NavButton active={page === 'settings'} icon="⚙" onClick={() => navigate('settings')}>Settings</NavButton>
         </nav>
-        <div className="sidebar-footer"><span className="avatar">VVL</span><div><strong>Accounts workspace</strong><span>Local data storage</span></div></div>
+        <div className="sidebar-footer">
+          <span className="avatar">VVL</span>
+          <div>
+            <strong>Accounts workspace</strong>
+            <span>{cloudStatus === 'synced' ? '☁️ Cloud synced' : cloudStatus === 'syncing' ? '⏳ Syncing cloud…' : 'Local + Cloud sync'}</span>
+          </div>
+        </div>
       </aside>
 
       <div className="main-column">
         <header className="topbar">
-          <div className="mobile-brand"><img className="brand-logo mobile-brand-logo" src={`${import.meta.env.BASE_URL}vetri-velavan-logo.jpeg`} alt="" /><strong>{settings.transporter}</strong></div>
-          <div className="topbar-right"><span className="status-dot" /> All changes saved locally <span className="avatar">VVL</span></div>
+          <div className="mobile-brand">
+            <img className="brand-logo mobile-brand-logo" src={`${import.meta.env.BASE_URL}vetri-velavan-logo.jpeg`} alt="" />
+            <div>
+              <strong>{settings.transporter}</strong>
+              <span style={{ display: 'block', fontSize: '9px', color: cloudStatus === 'synced' ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+                {cloudStatus === 'synced' ? '● Cloud synced' : cloudStatus === 'syncing' ? '● Syncing...' : '● Local saved'}
+              </span>
+            </div>
+          </div>
+          <div className="topbar-right">
+            <span className={`status-dot ${cloudStatus === 'synced' ? 'status-synced' : cloudStatus === 'syncing' ? 'status-syncing' : ''}`} />
+            {cloudStatus === 'synced' ? 'Cloud synced ☁️' : cloudStatus === 'syncing' ? 'Syncing to cloud…' : cloudStatus === 'connecting' ? 'Connecting cloud…' : 'Saved locally'}
+            <span className="avatar">VVL</span>
+          </div>
         </header>
         <main className="main-content">
           {storageError && <div className="notice notice-error" role="alert">{storageError}</div>}

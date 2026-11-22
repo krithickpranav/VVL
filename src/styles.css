@@ -227,6 +227,16 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   background: #29a478;
 }
 
+.status-dot.status-synced {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+}
+
+.status-dot.status-syncing {
+  background: #f59e0b;
+  animation: pulse 1s infinite;
+}
+
 .topbar .avatar {
   margin-left: 10px;
 }
