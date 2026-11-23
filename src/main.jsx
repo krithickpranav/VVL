@@ -70,6 +70,17 @@ function getNextTripNumber(existingTrips = [], dateStr = today) {
   return useSpace ? `${monthStr} ${yearStr}-${nextSeq}` : `${monthStr}${yearStr}-${nextSeq}`;
 }
 
+function calculateDays(startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+  const s = new Date(startDate);
+  const e = new Date(endDate);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return 0;
+  const utc1 = Date.UTC(s.getFullYear(), s.getMonth(), s.getDate());
+  const utc2 = Date.UTC(e.getFullYear(), e.getMonth(), e.getDate());
+  const diffDays = Math.floor((utc2 - utc1) / (1000 * 60 * 60 * 24));
+  return diffDays >= 0 ? diffDays + 1 : 0;
+}
+
 function freshTrip(existingTrips = [], dateStr = today) {
   const nextNumber = getNextTripNumber(existingTrips, dateStr);
   const isFirstEver = (!existingTrips || existingTrips.length === 0);
@@ -84,8 +95,36 @@ function freshTrip(existingTrips = [], dateStr = today) {
       startKm: 45210,
       endKm: 46120,
       freights: [
-        { id: makeId(), from: 'Hyderabad', to: 'Bangalore', material: 'Steel Coils', weight: 15.5, amount: 32000, received: 1000 },
-        { id: makeId(), from: 'Bangalore', to: 'Chennai', material: 'General Cargo', weight: 12, amount: 24000, received: 800 },
+        {
+          id: makeId(),
+          transporterName: 'VRL Logistics',
+          transporterNumber: '9845012345',
+          from: 'Hyderabad',
+          to: 'Bangalore',
+          material: 'Steel Coils',
+          weight: 15.5,
+          amount: 32000,
+          loadingCharge: 500,
+          unloadingCharge: 500,
+          received: 1000,
+          advanceDate: dateStr || today,
+          paymentMode: 'GPay',
+        },
+        {
+          id: makeId(),
+          transporterName: 'Sri Murugan Transports',
+          transporterNumber: '9443212345',
+          from: 'Bangalore',
+          to: 'Chennai',
+          material: 'General Cargo',
+          weight: 12,
+          amount: 24000,
+          loadingCharge: 400,
+          unloadingCharge: 400,
+          received: 800,
+          advanceDate: dateStr || today,
+          paymentMode: 'Cash to driver',
+        },
       ],
       diesel: [{ id: makeId(), station: 'HP Petrol Pump, Kurnool', date: dateStr || today, litres: 180, paidByOwner: 17100, paidByDriver: '', amount: 17100 }],
       expenses: {
@@ -175,8 +214,18 @@ function loadTrips() {
 function normalizeTrip(trip) {
   const expenses = trip.expenses || {};
   const freights = (Array.isArray(trip.freights) ? trip.freights : [])
-    .map((row) => ({ ...row, id: row.id || makeId() }));
-  const freightTotal = freights.reduce((sum, item) => sum + number(item.amount), 0);
+    .map((row) => ({
+      ...row,
+      id: row.id || makeId(),
+      transporterName: row.transporterName || '',
+      transporterNumber: row.transporterNumber || '',
+      loadingCharge: row.loadingCharge ?? '',
+      unloadingCharge: row.unloadingCharge ?? '',
+      received: row.received ?? row.advanceReceived ?? '',
+      advanceDate: row.advanceDate || row.date || trip.startDate || today,
+      paymentMode: row.paymentMode || 'GPay',
+    }));
+  const freightTotal = freights.reduce((sum, item) => sum + number(item.amount) + number(item.loadingCharge) + number(item.unloadingCharge), 0);
   const vehicleExpenses = Array.isArray(expenses.vehicleExpenses)
     ? expenses.vehicleExpenses.map((row) => {
       const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
@@ -275,8 +324,11 @@ function normalizeTrip(trip) {
 
 function calculate(trip) {
   const expenses = trip.expenses;
-  const freight = trip.freights.reduce((sum, item) => sum + number(item.amount), 0);
-  const received = trip.freights.reduce((sum, item) => sum + number(item.received), 0);
+  const freightAmount = (trip.freights || []).reduce((sum, item) => sum + number(item.amount), 0);
+  const loadingTotal = (trip.freights || []).reduce((sum, item) => sum + number(item.loadingCharge), 0);
+  const unloadingTotal = (trip.freights || []).reduce((sum, item) => sum + number(item.unloadingCharge), 0);
+  const freight = freightAmount + loadingTotal + unloadingTotal;
+  const received = (trip.freights || []).reduce((sum, item) => sum + number(item.received), 0);
 
   const dieselOwner = (trip.diesel || []).reduce((sum, item) => {
     if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
@@ -335,6 +387,9 @@ function calculate(trip) {
   const finalPayable = commission - driverAdvance - driverBalancePaid;
 
   return {
+    freightAmount,
+    loadingTotal,
+    unloadingTotal,
     freight,
     received,
     pending: Math.max(0, freight - received),
@@ -567,7 +622,20 @@ function App() {
     const blank = {
       id: makeId(),
       ...(group === 'freights'
-        ? { from: '', to: '', material: '', weight: '', amount: '', received: '' }
+        ? {
+            from: '',
+            to: '',
+            material: '',
+            weight: '',
+            transporterName: '',
+            transporterNumber: '',
+            amount: '',
+            loadingCharge: '',
+            unloadingCharge: '',
+            received: '',
+            advanceDate: today,
+            paymentMode: 'GPay',
+          }
         : group === 'vehicleExpenses'
           ? { date: today, type: 'Tyre puncture', name: '', paidByOwner: '', paidByDriver: '', amount: '', litres: '', rate: '' }
           : group === 'otherExpenses'
@@ -719,8 +787,8 @@ function App() {
       doc.text(savedTrip.tripNumber || 'Trip Sheet', pageWidth - left, 41, { align: 'right' });
     };
     const tableHeading = (y) => {
-      const widths = [10, 43, 33, 13, 26, 26, 27];
-      const labels = ['LR', 'ROUTE', 'MATERIAL', 'TONS', 'FREIGHT', 'RECEIVED', 'PENDING'];
+      const widths = [10, 48, 30, 13, 25, 25, 27];
+      const labels = ['LR', 'TRANSPORTER / ROUTE', 'MATERIAL', 'TONS', 'LR TOTAL', 'ADV. REC.', 'BALANCE'];
       doc.setFillColor(240, 243, 248);
       doc.rect(left, y - 5, printableWidth, 8, 'F');
       doc.setFont('helvetica', 'bold');
@@ -737,10 +805,11 @@ function App() {
     };
 
     heading();
+    const tripDays = calculateDays(savedTrip.startDate, savedTrip.endDate);
     const meta = [
       ['Vehicle', savedTrip.truck || '—'],
       ['Driver', savedTrip.driver || '—'],
-      ['Trip dates', `${savedTrip.startDate || '—'} to ${savedTrip.endDate || '—'}`],
+      ['Trip dates', `${savedTrip.startDate || '—'} to ${savedTrip.endDate || '—'}${tripDays > 0 ? ` (${tripDays} ${tripDays === 1 ? 'day' : 'days'})` : ''}`],
       ['Distance', `${Math.max(0, number(savedTrip.endKm) - number(savedTrip.startKm)).toLocaleString('en-IN')} KM`],
     ];
     meta.forEach(([label, value], index) => {
@@ -779,14 +848,17 @@ function App() {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
       }
+      const lrTotal = number(item.amount) + number(item.loadingCharge) + number(item.unloadingCharge);
+      const lrPending = Math.max(0, lrTotal - number(item.received));
+      const routeText = item.transporterName ? `${item.transporterName} (${item.from || ''} - ${item.to || ''})` : `${item.from || ''} - ${item.to || ''}`;
       const cells = [
         String(index + 1),
-        `${item.from || ''} - ${item.to || ''}`,
+        routeText,
         item.material || '',
         `${number(item.weight)} t`,
-        inr(item.amount),
+        inr(lrTotal),
         inr(item.received),
-        inr(Math.max(0, number(item.amount) - number(item.received))),
+        inr(lrPending),
       ];
       let x = left + 2;
       cells.forEach((cell, cellIndex) => {
@@ -879,15 +951,19 @@ function App() {
 
   const sortedTrips = useMemo(() => [...trips].sort((a, b) => new Date(b.updatedAt || b.savedAt) - new Date(a.updatedAt || a.savedAt)), [trips]);
   const overallPending = useMemo(() => sortedTrips.reduce((sum, item) => sum + calculate(item).pending, 0), [sortedTrips]);
-  const freightDetails = useMemo(() => sortedTrips.flatMap((savedTrip) => (savedTrip.freights || []).map((freight, index) => ({
-    ...freight,
-    tripId: savedTrip.id,
-    tripNumber: savedTrip.tripNumber,
-    truck: savedTrip.truck,
-    driver: savedTrip.driver,
-    rowNumber: index + 1,
-    settled: number(freight.amount) > 0 && number(freight.received) >= number(freight.amount),
-  }))), [sortedTrips]);
+  const freightDetails = useMemo(() => sortedTrips.flatMap((savedTrip) => (savedTrip.freights || []).map((freight, index) => {
+    const totalLr = number(freight.amount) + number(freight.loadingCharge) + number(freight.unloadingCharge);
+    return {
+      ...freight,
+      totalLr,
+      tripId: savedTrip.id,
+      tripNumber: savedTrip.tripNumber,
+      truck: savedTrip.truck,
+      driver: savedTrip.driver,
+      rowNumber: index + 1,
+      settled: totalLr > 0 && number(freight.received) >= totalLr,
+    };
+  })), [sortedTrips]);
 
   return (
     <div className="app-shell">
@@ -1062,20 +1138,24 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
             </datalist>
           </label>
           <Field label="Assigned driver" value={trip.driver} onChange={(value) => updateTrip('driver', value)} required />
-          <div className="field-pair">
-            <Field
-              label="Start date"
-              type="date"
-              value={trip.startDate}
-              onChange={(value) => {
-                updateTrip('startDate', value);
-                // Auto-update trip number if user hasn't typed a custom one
-                if (!trip.tripNumber || trip.tripNumber === getNextTripNumber(trips, trip.startDate)) {
-                  updateTrip('tripNumber', getNextTripNumber(trips, value));
-                }
-              }}
-            />
-            <Field label="End date" type="date" value={trip.endDate} onChange={(value) => updateTrip('endDate', value)} />
+        </div>
+        <div className="dates-row">
+          <Field
+            label="Start date"
+            type="date"
+            value={trip.startDate}
+            onChange={(value) => {
+              updateTrip('startDate', value);
+              // Auto-update trip number if user hasn't typed a custom one
+              if (!trip.tripNumber || trip.tripNumber === getNextTripNumber(trips, trip.startDate)) {
+                updateTrip('tripNumber', getNextTripNumber(trips, value));
+              }
+            }}
+          />
+          <Field label="End date" type="date" value={trip.endDate} onChange={(value) => updateTrip('endDate', value)} />
+          <div className="dates-total">
+            <span>Total days</span>
+            <strong>{calculateDays(trip.startDate, trip.endDate)} <small>{calculateDays(trip.startDate, trip.endDate) === 1 ? 'DAY' : 'DAYS'}</small></strong>
           </div>
         </div>
         <div className="odometer-row">
@@ -1087,23 +1167,78 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
 
       <section className="panel">
         <SectionTitle icon="▣" action={<Button variant="primary" type="button" onClick={() => addRow('freights')}>＋ Add LR</Button>}>Freight details</SectionTitle>
-        <div className="data-grid freight-grid">
-          <div className="data-header"><span>LR</span><span>From</span><span>To</span><span>Material</span><span>Tons</span><span>Freight (₹)</span><span>Received (₹)</span><span /></div>
-          {trip.freights.map((row, index) => (
-              <div className="data-row" key={row.id}>
-                <span className="row-index">{String(index + 1).padStart(2, '0')}</span>
-                <InlineInput label="From" value={row.from} onChange={(value) => updateRow('freights', row.id, 'from', value)} />
-                <InlineInput label="To" value={row.to} onChange={(value) => updateRow('freights', row.id, 'to', value)} />
-                <InlineInput label="Material" value={row.material} onChange={(value) => updateRow('freights', row.id, 'material', value)} />
-                <InlineInput label="Tons" type="number" min="0" step="0.1" value={row.weight} onChange={(value) => updateRow('freights', row.id, 'weight', value)} />
-                <InlineInput label="Freight (₹)" type="number" min="0" value={row.amount} onChange={(value) => updateRow('freights', row.id, 'amount', value)} />
-                <InlineInput label="Received (₹)" type="number" min="0" value={row.received} onChange={(value) => updateRow('freights', row.id, 'received', value)} />
-                <button className="icon-button row-delete" type="button" onClick={() => removeRow('freights', row.id)} aria-label={`Remove freight row ${index + 1}`}>×</button>
+        <div className="freight-entries-list">
+          {trip.freights.map((row, index) => {
+            const lrTotal = number(row.amount) + number(row.loadingCharge) + number(row.unloadingCharge);
+            const lrPending = Math.max(0, lrTotal - number(row.received));
+            return (
+              <div className="freight-entry-card" key={row.id}>
+                <div className="freight-card-header">
+                  <div className="freight-card-tag">
+                    <span className="lr-pill">LR #{String(index + 1).padStart(2, '0')}</span>
+                    {row.transporterName ? (
+                      <strong className="lr-transporter-tag">{row.transporterName}</strong>
+                    ) : (
+                      <span className="lr-transporter-tag" style={{ color: '#94a3b8' }}>LR Entry #{index + 1}</span>
+                    )}
+                  </div>
+                  <button className="icon-button row-delete" type="button" onClick={() => removeRow('freights', row.id)} aria-label={`Remove freight row ${index + 1}`}>×</button>
+                </div>
+
+                <div className="freight-card-grid">
+                  <Field label="Transporter name" value={row.transporterName || ''} onChange={(val) => updateRow('freights', row.id, 'transporterName', val)} placeholder="e.g. VRL Logistics, Sri Murugan" />
+                  <Field label="Transporter number" value={row.transporterNumber || ''} onChange={(val) => updateRow('freights', row.id, 'transporterNumber', val)} placeholder="Phone / contact no." />
+                  <Field label="From (Origin)" value={row.from} onChange={(value) => updateRow('freights', row.id, 'from', value)} placeholder="Origin city / town" />
+                  <Field label="To (Destination)" value={row.to} onChange={(value) => updateRow('freights', row.id, 'to', value)} placeholder="Destination city / town" />
+                  <Field label="Material" value={row.material} onChange={(value) => updateRow('freights', row.id, 'material', value)} placeholder="Goods description" />
+                  <Field label="Weight (Tons)" type="number" min="0" step="0.1" value={row.weight} onChange={(value) => updateRow('freights', row.id, 'weight', value)} placeholder="0.0" />
+                  <Field label="Freight amount (₹)" type="number" min="0" value={row.amount} onChange={(value) => updateRow('freights', row.id, 'amount', value)} placeholder="0" />
+                  <Field label="Loading charge (₹)" type="number" min="0" value={row.loadingCharge} onChange={(value) => updateRow('freights', row.id, 'loadingCharge', value)} placeholder="0" />
+                  <Field label="Unloading charge (₹)" type="number" min="0" value={row.unloadingCharge} onChange={(value) => updateRow('freights', row.id, 'unloadingCharge', value)} placeholder="0" />
+                  <Field label="Advance received (₹)" type="number" min="0" value={row.received} onChange={(value) => updateRow('freights', row.id, 'received', value)} placeholder="0" />
+                  <Field label="Advance date" type="date" value={row.advanceDate || trip.startDate || today} onChange={(value) => updateRow('freights', row.id, 'advanceDate', value)} />
+                  <label className="field">
+                    <span>Mode of payment</span>
+                    <select
+                      className="field-select"
+                      value={row.paymentMode || 'GPay'}
+                      onChange={(e) => updateRow('freights', row.id, 'paymentMode', e.target.value)}
+                    >
+                      <option value="GPay">GPay</option>
+                      <option value="Account transfer">Account transfer</option>
+                      <option value="Cash to owner">Cash to owner</option>
+                      <option value="Cash to driver">Cash to driver</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="freight-card-footer">
+                  <div className="freight-footer-item">
+                    <span>Total LR Billing:</span>
+                    <strong>{amount(lrTotal)}</strong>
+                  </div>
+                  <div className="freight-footer-item">
+                    <span>Advance received ({row.paymentMode || 'GPay'}):</span>
+                    <strong style={{ color: '#059669' }}>{amount(row.received)}</strong>
+                  </div>
+                  <div className="freight-footer-item">
+                    <span>Pending balance:</span>
+                    <strong style={{ color: lrPending > 0 ? '#b45309' : '#059669' }}>{amount(lrPending)}</strong>
+                  </div>
+                </div>
               </div>
-          ))}
-          {trip.freights.length === 0 && <div className="empty-row">No freight entries yet. Select “Add LR” to start.</div>}
+            );
+          })}
+          {trip.freights.length === 0 && <div className="empty-row">No freight entries yet. Select “＋ Add LR” to start.</div>}
         </div>
-        <div className="total-strip"><span>Total freight collection</span><strong>{amount(totals.freight)}</strong></div>
+        <div className="total-strip freight-summary-strip">
+          <div><span>Freight charges: </span><strong>{amount(totals.freightAmount ?? totals.freight)}</strong></div>
+          {(number(totals.loadingTotal) > 0 || number(totals.unloadingTotal) > 0) && (
+            <div><span>Loading & Unloading: </span><strong>{amount(number(totals.loadingTotal) + number(totals.unloadingTotal))}</strong></div>
+          )}
+          <div><span>Advance received: </span><strong style={{ color: '#059669' }}>{amount(totals.received)}</strong></div>
+          <div><span>Pending balance: </span><strong style={{ color: totals.pending ? '#b45309' : '#059669' }}>{amount(totals.pending)}</strong></div>
+        </div>
       </section>
     </>
   );
@@ -1465,12 +1600,13 @@ function Reports({ trips, pending, onCreate, onEdit, onDelete, onDownload, trans
 function TripListRow({ trip, onEdit, onDelete, onDownload, pdfLoading }) {
   // Use pre-computed totals if available (saved on trip), else recalculate
   const totals = trip.totals && trip.totals.freight !== undefined ? trip.totals : calculate(trip);
+  const days = calculateDays(trip.startDate, trip.endDate);
   return (
     <article className="trip-list-row">
       <div className="trip-identity">
         <div className="trip-avatar"><Icon>↗</Icon></div>
         <div><strong>{trip.tripNumber || 'Untitled trip'}</strong><span>{trip.truck || 'No vehicle'} · {trip.driver || 'No driver'}</span>
-          <span>{trip.startDate || 'No start date'}{trip.endDate ? ` – ${trip.endDate}` : ''}</span></div>
+          <span>{trip.startDate || 'No start date'}{trip.endDate ? ` – ${trip.endDate}` : ''}{days > 0 ? ` (${days} ${days === 1 ? 'day' : 'days'})` : ''}</span></div>
       </div>
       <div className="trip-value"><span>Freight</span><strong>{amount(totals.freight)}</strong></div>
       <div className="trip-value"><span>Pending</span><strong className={totals.pending ? 'negative' : 'positive'}>{amount(totals.pending)}</strong></div>
@@ -1491,8 +1627,8 @@ function FreightDetails({ freights, onEdit, onDelete, transporter }) {
   const unsettled = freights.filter((freight) => !freight.settled);
   const settled = freights.filter((freight) => freight.settled);
   const visibleFreights = status === 'settled' ? settled : unsettled;
-  const pendingAmount = unsettled.reduce((sum, freight) => sum + Math.max(0, number(freight.amount) - number(freight.received)), 0);
-  const settledAmount = settled.reduce((sum, freight) => sum + number(freight.amount), 0);
+  const pendingAmount = unsettled.reduce((sum, freight) => sum + Math.max(0, (freight.totalLr || number(freight.amount)) - number(freight.received)), 0);
+  const settledAmount = settled.reduce((sum, freight) => sum + (freight.totalLr || number(freight.amount)), 0);
 
   return (
     <>
@@ -1515,20 +1651,37 @@ function FreightDetails({ freights, onEdit, onDelete, transporter }) {
         {visibleFreights.length ? (
           <div className="freight-detail-list">
             {visibleFreights.map((freight, index) => {
-              const balance = Math.max(0, number(freight.amount) - number(freight.received));
+              const lrTotal = freight.totalLr || (number(freight.amount) + number(freight.loadingCharge) + number(freight.unloadingCharge));
+              const balance = Math.max(0, lrTotal - number(freight.received));
               return (
                 <article className="freight-detail-card" key={`${freight.tripId}-${freight.id || index}`}>
                   <div className="freight-detail-heading">
-                    <div><strong>{freight.tripNumber || 'Untitled trip'} · LR {String(freight.rowNumber).padStart(2, '0')}</strong>
-                      <span>{freight.truck || 'No vehicle'} · {freight.driver || 'No driver'}</span></div>
+                    <div>
+                      <strong>{freight.tripNumber || 'Untitled trip'} · LR {String(freight.rowNumber).padStart(2, '0')}</strong>
+                      <span>{freight.truck || 'No vehicle'} · {freight.driver || 'No driver'}</span>
+                      {freight.transporterName && (
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#1d4ed8', marginTop: '2px' }}>
+                          🏢 {freight.transporterName} {freight.transporterNumber ? `(📞 ${freight.transporterNumber})` : ''}
+                        </div>
+                      )}
+                    </div>
                     <span className={`badge ${freight.settled ? 'badge-success' : 'badge-warning'}`}>{freight.settled ? 'Settled' : 'Unsettled'}</span>
                   </div>
                   <div className="freight-detail-route">{freight.from || '—'} <span>→</span> {freight.to || '—'}</div>
                   <div className="freight-detail-meta">
                     <div><span>Material</span><strong>{freight.material || '—'}</strong></div>
-                    <div><span>Tons</span><strong>{freight.weight || '—'}</strong></div>
+                    <div><span>Tons</span><strong>{freight.weight ? `${freight.weight} t` : '—'}</strong></div>
                     <div><span>Freight</span><strong>{amount(freight.amount)}</strong></div>
-                    <div><span>Received</span><strong>{amount(freight.received)}</strong></div>
+                    {(number(freight.loadingCharge) > 0 || number(freight.unloadingCharge) > 0) && (
+                      <div><span>Load/Unload</span><strong>{amount(number(freight.loadingCharge) + number(freight.unloadingCharge))}</strong></div>
+                    )}
+                    <div>
+                      <span>Adv. received</span>
+                      <strong style={{ color: '#059669' }}>
+                        {amount(freight.received)}
+                        {freight.paymentMode ? <small style={{ display: 'block', fontSize: '10px', color: '#64748b' }}>via {freight.paymentMode}</small> : null}
+                      </strong>
+                    </div>
                     <div><span>Balance</span><strong className={balance ? 'negative' : 'positive'}>{amount(balance)}</strong></div>
                   </div>
                   <div className="freight-detail-actions">
