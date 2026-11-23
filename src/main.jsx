@@ -109,6 +109,7 @@ function freshTrip(existingTrips = [], dateStr = today) {
           received: 1000,
           advanceDate: dateStr || today,
           paymentMode: 'GPay',
+          balancePayments: [],
         },
         {
           id: makeId(),
@@ -124,9 +125,10 @@ function freshTrip(existingTrips = [], dateStr = today) {
           received: 800,
           advanceDate: dateStr || today,
           paymentMode: 'Cash to driver',
+          balancePayments: [],
         },
       ],
-      diesel: [{ id: makeId(), station: 'HP Petrol Pump, Kurnool', date: dateStr || today, litres: 180, paidByOwner: 17100, paidByDriver: '', amount: 17100 }],
+      diesel: [{ id: makeId(), station: 'HP Petrol Pump, Kurnool', date: dateStr || today, litres: 180, km: 45600, paidByOwner: 17100, paidByDriver: '', amount: 17100 }],
       expenses: {
         otherExpenses: [
           { id: makeId(), date: dateStr || today, name: 'Food & meals', paidByOwner: 1500, paidByDriver: '', amount: 1500 },
@@ -134,8 +136,9 @@ function freshTrip(existingTrips = [], dateStr = today) {
           { id: makeId(), date: dateStr || today, name: 'Misc. & phone', paidByOwner: 500, paidByDriver: '', amount: 500 },
           { id: makeId(), date: dateStr || today, name: 'Kurnool Checkpost', paidByOwner: 1200, paidByDriver: '', amount: 1200 },
         ],
-        tolls: [{ id: makeId(), date: dateStr || today, location: 'Orvakal Toll Plaza', paidByOwner: 1850, paidByDriver: '', amount: 1850 }],
+        tolls: [{ id: makeId(), date: dateStr || today, toDate: '', location: 'Orvakal Toll Plaza', paidBy: 'owner', paidByOwner: 1850, paidByDriver: '', amount: 1850 }],
         vehicleExpenses: [],
+        policeRtoExpenses: [],
         driverAdvances: [{ id: makeId(), date: dateStr || today, amount: 5000 }],
         driverBalancePayments: [],
         driverBataPct: 0,
@@ -158,6 +161,7 @@ function freshTrip(existingTrips = [], dateStr = today) {
       otherExpenses: [],
       tolls: [],
       vehicleExpenses: [],
+      policeRtoExpenses: [],
       driverAdvances: [],
       driverBalancePayments: [],
       driverBataPct: 0,
@@ -224,6 +228,13 @@ function normalizeTrip(trip) {
       received: row.received ?? row.advanceReceived ?? '',
       advanceDate: row.advanceDate || row.date || trip.startDate || today,
       paymentMode: row.paymentMode || 'GPay',
+      balancePayments: (Array.isArray(row.balancePayments) ? row.balancePayments : [])
+        .map((b) => ({
+          id: b.id || makeId(),
+          date: b.date || today,
+          amount: b.amount ?? '',
+          paymentMode: b.paymentMode || 'Account transfer',
+        })),
     }));
   const freightTotal = freights.reduce((sum, item) => sum + number(item.amount) + number(item.loadingCharge) + number(item.unloadingCharge), 0);
   const vehicleExpenses = Array.isArray(expenses.vehicleExpenses)
@@ -245,6 +256,32 @@ function normalizeTrip(trip) {
       id: makeId(), date: trip.startDate || today, type: 'Other', name: 'Maintenance & repair',
       amount: expenses.maintenance, paidByOwner: expenses.maintenance, paidByDriver: '', litres: '', rate: '',
     }] : [];
+  const policeRtoExpenses = Array.isArray(expenses.policeRtoExpenses)
+    ? expenses.policeRtoExpenses.map((row) => {
+      const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
+      const hasDriver = row.paidByDriver !== undefined && row.paidByDriver !== '';
+      const paidByOwner = hasOwner ? row.paidByOwner : (hasDriver ? '' : (row.amount ?? ''));
+      const paidByDriver = hasDriver ? row.paidByDriver : '';
+      return {
+        ...row,
+        id: row.id || makeId(),
+        date: row.date || trip.startDate || today,
+        name: row.name || 'Police & RTO expense',
+        paidByOwner,
+        paidByDriver,
+        amount: (number(paidByOwner) + number(paidByDriver)) || row.amount || '',
+      };
+    })
+    : (Array.isArray(expenses.checkpoints) ? expenses.checkpoints.map((row) => ({
+      id: makeId(),
+      date: row.date || trip.startDate || today,
+      name: row.location || 'RTO & police checkpoint',
+      paidByOwner: row.amount || '',
+      paidByDriver: '',
+      amount: row.amount || '',
+    })) : (number(expenses.rto) ? [{
+      id: makeId(), date: trip.startDate || today, name: 'RTO & police checkpoints', paidByOwner: expenses.rto, paidByDriver: '', amount: expenses.rto,
+    }] : []));
   const otherExpenses = Array.isArray(expenses.otherExpenses)
     ? expenses.otherExpenses.map((row) => {
       const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
@@ -257,8 +294,6 @@ function normalizeTrip(trip) {
       ['Food & meals', expenses.food],
       ['Loading / coolie', expenses.lock],
       ['Misc. & phone', expenses.misc],
-      ...(Array.isArray(expenses.checkpoints) ? expenses.checkpoints.map((row) => [row.location || 'RTO & police checkpoint', row.amount, row.date]) : []),
-      ...(!Array.isArray(expenses.checkpoints) && number(expenses.rto) ? [['RTO & police checkpoints', expenses.rto]] : []),
     ].filter(([, value]) => number(value) !== 0).map(([name, value, date]) => ({
       id: makeId(), date: date || trip.startDate || today, name, amount: value,
     }));
@@ -293,6 +328,9 @@ function normalizeTrip(trip) {
         ...row,
         id: row.id || makeId(),
         date: row.date || trip.startDate || today,
+        station: row.station || '',
+        litres: row.litres ?? '',
+        km: row.km ?? '',
         paidByOwner,
         paidByDriver,
         amount: totalAmount || row.amount || '',
@@ -304,6 +342,7 @@ function normalizeTrip(trip) {
         ? expenses.driverBataPct
         : freightTotal > 0 ? number(expenses.driverBata) / freightTotal * 100 : 0,
       vehicleExpenses,
+      policeRtoExpenses,
       otherExpenses,
       driverAdvances,
       driverBalancePayments,
@@ -313,23 +352,41 @@ function normalizeTrip(trip) {
           const hasDriver = row.paidByDriver !== undefined && row.paidByDriver !== '';
           const paidByOwner = hasOwner ? row.paidByOwner : (hasDriver ? '' : (row.amount ?? ''));
           const paidByDriver = hasDriver ? row.paidByDriver : '';
-          return { ...row, id: row.id || makeId(), date: row.date || trip.startDate || today, paidByOwner, paidByDriver };
+          return {
+            ...row,
+            id: row.id || makeId(),
+            date: row.date || trip.startDate || today,
+            toDate: row.toDate || '',
+            location: row.location || 'FASTag tolls',
+            paidBy: row.paidBy || (hasDriver && !hasOwner ? 'driver' : 'owner'),
+            paidByOwner,
+            paidByDriver,
+            amount: (number(paidByOwner) + number(paidByDriver)) || row.amount || '',
+          };
         })
         : [{
-          id: makeId(), date: trip.startDate || today, location: 'FASTag tolls', amount: number(expenses.tolls),
+          id: makeId(), date: trip.startDate || today, toDate: '', location: 'FASTag tolls', paidBy: 'owner', amount: number(expenses.tolls), paidByOwner: number(expenses.tolls), paidByDriver: '',
         }],
     },
   };
 }
 
 function calculate(trip) {
-  const expenses = trip.expenses;
+  const expenses = trip.expenses || {};
   const freightAmount = (trip.freights || []).reduce((sum, item) => sum + number(item.amount), 0);
   const loadingTotal = (trip.freights || []).reduce((sum, item) => sum + number(item.loadingCharge), 0);
   const unloadingTotal = (trip.freights || []).reduce((sum, item) => sum + number(item.unloadingCharge), 0);
   const freight = freightAmount + loadingTotal + unloadingTotal;
-  const received = (trip.freights || []).reduce((sum, item) => sum + number(item.received), 0);
 
+  // Advance received
+  const advanceReceived = (trip.freights || []).reduce((sum, item) => sum + number(item.received), 0);
+  // Balance payments received (multiple installments per LR)
+  const balanceReceived = (trip.freights || []).reduce((sum, item) =>
+    sum + (item.balancePayments || []).reduce((bSum, b) => bSum + number(b.amount), 0), 0);
+  const received = advanceReceived + balanceReceived;
+  const pending = Math.max(0, freight - received);
+
+  // Diesel
   const dieselOwner = (trip.diesel || []).reduce((sum, item) => {
     if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
     if (item.paidBy === 'driver') return sum;
@@ -343,45 +400,62 @@ function calculate(trip) {
   }, 0);
 
   const dieselTotal = dieselOwner + dieselDriver;
+  const totalLitres = (trip.diesel || []).reduce((sum, item) => sum + number(item.litres), 0);
+  const totalKm = Math.max(0, number(trip.endKm) - number(trip.startKm));
+  const mileage = totalLitres > 0 && totalKm > 0 ? Number((totalKm / totalLitres).toFixed(2)) : 0;
 
-  const tollsOwner = expenses.tolls.reduce((sum, item) => {
-    if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
-    if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum; // driver paid all
-    return sum + number(item.amount);
-  }, 0);
-  const tollsDriver = expenses.tolls.reduce((sum, item) =>
-    (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
-  const tolls = tollsOwner + tollsDriver;
-
-  const otherOwner = expenses.otherExpenses.reduce((sum, item) => {
+  // Tolls
+  const tollsOwner = (expenses.tolls || []).reduce((sum, item) => {
     if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
     if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum;
     return sum + number(item.amount);
   }, 0);
-  const otherDriver = expenses.otherExpenses.reduce((sum, item) =>
+  const tollsDriver = (expenses.tolls || []).reduce((sum, item) =>
+    (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
+  const tolls = tollsOwner + tollsDriver;
+
+  // Police & RTO Expenses
+  const policeOwner = (expenses.policeRtoExpenses || []).reduce((sum, item) => {
+    if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
+    if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum;
+    return sum + number(item.amount);
+  }, 0);
+  const policeDriver = (expenses.policeRtoExpenses || []).reduce((sum, item) =>
+    (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
+  const policeRto = policeOwner + policeDriver;
+
+  // Other Expenses
+  const otherOwner = (expenses.otherExpenses || []).reduce((sum, item) => {
+    if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
+    if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum;
+    return sum + number(item.amount);
+  }, 0);
+  const otherDriver = (expenses.otherExpenses || []).reduce((sum, item) =>
     (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
   const otherExpenses = otherOwner + otherDriver;
 
-  const vehicleOwner = expenses.vehicleExpenses.reduce((sum, item) => {
+  // Vehicle / Bill Expenses
+  const vehicleOwner = (expenses.vehicleExpenses || []).reduce((sum, item) => {
     const base = item.type === 'AdBlue oil refill' ? number(item.litres) * number(item.rate) : number(item.amount);
     if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
     if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum;
     return sum + base;
   }, 0);
-  const vehicleDriver = expenses.vehicleExpenses.reduce((sum, item) =>
+  const vehicleDriver = (expenses.vehicleExpenses || []).reduce((sum, item) =>
     (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
   const vehicleExpenses = vehicleOwner + vehicleDriver;
 
-  const grossDriverAdvance = expenses.driverAdvances.reduce((sum, item) => sum + number(item.amount), 0);
+  // Driver calculations
+  const grossDriverAdvance = (expenses.driverAdvances || []).reduce((sum, item) => sum + number(item.amount), 0);
   // All driver-paid expenses are subtracted from driver advance
-  const totalDriverExpenses = dieselDriver + tollsDriver + otherDriver + vehicleDriver;
+  const totalDriverExpenses = dieselDriver + tollsDriver + policeDriver + otherDriver + vehicleDriver;
   const driverAdvance = grossDriverAdvance - totalDriverExpenses;
 
-  const driverBalancePaid = expenses.driverBalancePayments.reduce((sum, item) => sum + number(item.amount), 0);
+  const driverBalancePaid = (expenses.driverBalancePayments || []).reduce((sum, item) => sum + number(item.amount), 0);
   const driverBata = freight * number(expenses.driverBataPct) / 100;
 
   // Owner-paid portions are operating expenses; driver-paid portions reduce driver advance
-  const operatingExpenses = dieselOwner + otherOwner + tollsOwner + vehicleOwner + driverBata;
+  const operatingExpenses = dieselOwner + otherOwner + tollsOwner + policeOwner + vehicleOwner + driverBata;
   const commission = freight * number(expenses.commissionPct) / 100;
   const netProfit = freight - operatingExpenses;
   const finalPayable = commission - driverAdvance - driverBalancePaid;
@@ -391,18 +465,26 @@ function calculate(trip) {
     loadingTotal,
     unloadingTotal,
     freight,
+    advanceReceived,
+    balanceReceived,
     received,
-    pending: Math.max(0, freight - received),
+    pending,
     diesel: dieselOwner,
     dieselOwner,
     dieselDriver,
     dieselTotal,
-    otherExpenses,
-    otherOwner,
-    otherDriver,
+    totalLitres,
+    totalKm,
+    mileage,
     tolls,
     tollsOwner,
     tollsDriver,
+    policeRto,
+    policeOwner,
+    policeDriver,
+    otherExpenses,
+    otherOwner,
+    otherDriver,
     vehicleExpenses,
     vehicleOwner,
     vehicleDriver,
@@ -605,7 +687,7 @@ function App() {
         [group]: current.expenses[group].map((row) => {
           if (row.id !== id) return row;
           const updated = { ...row, [key]: value };
-          if (['tolls', 'otherExpenses', 'vehicleExpenses'].includes(group)) {
+          if (['tolls', 'otherExpenses', 'vehicleExpenses', 'policeRtoExpenses'].includes(group)) {
             const o = key === 'paidByOwner' ? value : updated.paidByOwner;
             const d = key === 'paidByDriver' ? value : updated.paidByDriver;
             if (o !== undefined || d !== undefined) {
@@ -615,6 +697,43 @@ function App() {
           return updated;
         }),
       },
+    }));
+  }, []);
+
+  const addFreightBalance = useCallback((freightId) => {
+    setTrip((current) => ({
+      ...current,
+      freights: current.freights.map((f) => {
+        if (f.id !== freightId) return f;
+        const newBalance = { id: makeId(), date: today, amount: '', paymentMode: 'Account transfer' };
+        return { ...f, balancePayments: [...(f.balancePayments || []), newBalance] };
+      }),
+    }));
+  }, []);
+
+  const updateFreightBalance = useCallback((freightId, balanceId, key, value) => {
+    setTrip((current) => ({
+      ...current,
+      freights: current.freights.map((f) => {
+        if (f.id !== freightId) return f;
+        return {
+          ...f,
+          balancePayments: (f.balancePayments || []).map((b) => (b.id === balanceId ? { ...b, [key]: value } : b)),
+        };
+      }),
+    }));
+  }, []);
+
+  const removeFreightBalance = useCallback((freightId, balanceId) => {
+    setTrip((current) => ({
+      ...current,
+      freights: current.freights.map((f) => {
+        if (f.id !== freightId) return f;
+        return {
+          ...f,
+          balancePayments: (f.balancePayments || []).filter((b) => b.id !== balanceId),
+        };
+      }),
     }));
   }, []);
 
@@ -635,18 +754,23 @@ function App() {
             received: '',
             advanceDate: today,
             paymentMode: 'GPay',
+            balancePayments: [],
           }
         : group === 'vehicleExpenses'
           ? { date: today, type: 'Tyre puncture', name: '', paidByOwner: '', paidByDriver: '', amount: '', litres: '', rate: '' }
+          : group === 'policeRtoExpenses'
+            ? { date: today, name: '', paidByOwner: '', paidByDriver: '', amount: '' }
           : group === 'otherExpenses'
             ? { date: today, name: '', paidByOwner: '', paidByDriver: '', amount: '' }
           : group === 'driverAdvances'
             ? { date: today, amount: '' }
-            : group === 'driverBalancePayments'
-              ? { date: today, amount: '' }
+          : group === 'driverBalancePayments'
+            ? { date: today, amount: '' }
+          : group === 'tolls'
+            ? { date: today, toDate: '', location: '', paidBy: 'owner', paidByOwner: '', paidByDriver: '', amount: '' }
             : { date: today, location: '', paidByOwner: '', paidByDriver: '', amount: '' }),
     };
-    if (group === 'diesel') Object.assign(blank, { station: '', litres: '', paidByOwner: '', paidByDriver: '', amount: '' });
+    if (group === 'diesel') Object.assign(blank, { station: '', litres: '', km: '', paidByOwner: '', paidByDriver: '', amount: '' });
     if (group === 'freights' || group === 'diesel') {
       setTrip((current) => ({ ...current, [group]: [...current[group], blank] }));
     } else {
@@ -763,179 +887,342 @@ function App() {
     const logoData = await loadLogoDataUrl();
     const reportTotals = calculate(savedTrip);
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const left = 16;
+    const left = 14;
     const pageWidth = doc.internal.pageSize.getWidth();
     const printableWidth = pageWidth - left * 2;
     const inr = (value) => `INR ${number(value).toLocaleString('en-IN')}`;
-    const heading = () => {
-      doc.addImage(logoData, 'JPEG', left, 9, 42, 22);
+
+    const heading = (title = 'TRIP SHEET REPORT') => {
+      doc.addImage(logoData, 'JPEG', left, 8, 40, 20);
       doc.setTextColor(20, 33, 54);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
-      doc.text(settings.transporter || DEFAULT_SETTINGS.transporter, left + 48, 13);
+      doc.text(settings.transporter || DEFAULT_SETTINGS.transporter, left + 45, 12);
       doc.setFontSize(6.5);
       doc.setTextColor(102, 115, 135);
-      doc.text(settings.tagline || DEFAULT_SETTINGS.tagline, left + 48, 18);
-      doc.text(`A Group of ${settings.groupName || DEFAULT_SETTINGS.groupName}`, left + 48, 22);
-      doc.text(`${settings.location || DEFAULT_SETTINGS.location} | ${settings.phone || DEFAULT_SETTINGS.phone}`, left + 48, 26);
-      doc.text(`Proprietor: ${settings.proprietor || DEFAULT_SETTINGS.proprietor}`, left + 48, 30);
-      doc.text(settings.qualifications || DEFAULT_SETTINGS.qualifications, left + 48, 34, { maxWidth: printableWidth - 48 });
-      doc.setFontSize(7);
-      doc.text('TRIP SHEET REPORT', left + 48, 41);
+      doc.text(settings.tagline || DEFAULT_SETTINGS.tagline, left + 45, 16.5);
+      doc.text(`A Group of ${settings.groupName || DEFAULT_SETTINGS.groupName}`, left + 45, 20);
+      doc.text(`${settings.location || DEFAULT_SETTINGS.location} | ${settings.phone || DEFAULT_SETTINGS.phone}`, left + 45, 23.5);
+      doc.text(`Proprietor: ${settings.proprietor || DEFAULT_SETTINGS.proprietor}`, left + 45, 27);
+      doc.text(settings.qualifications || DEFAULT_SETTINGS.qualifications, left + 45, 30.5, { maxWidth: printableWidth - 45 });
+      doc.setFontSize(7.5);
+      doc.setTextColor(30, 64, 175);
+      doc.text(title, left + 45, 36);
       doc.setFontSize(11);
       doc.setTextColor(20, 33, 54);
-      doc.text(savedTrip.tripNumber || 'Trip Sheet', pageWidth - left, 41, { align: 'right' });
-    };
-    const tableHeading = (y) => {
-      const widths = [10, 48, 30, 13, 25, 25, 27];
-      const labels = ['LR', 'TRANSPORTER / ROUTE', 'MATERIAL', 'TONS', 'LR TOTAL', 'ADV. REC.', 'BALANCE'];
-      doc.setFillColor(240, 243, 248);
-      doc.rect(left, y - 5, printableWidth, 8, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.setTextColor(79, 91, 109);
-      let x = left + 2;
-      labels.forEach((label, index) => {
-        doc.text(label, x, y);
-        x += widths[index];
-      });
-      doc.setDrawColor(220, 226, 235);
-      doc.line(left, y + 3, pageWidth - left, y + 3);
-      return widths;
+      doc.text(savedTrip.tripNumber || 'Trip Sheet', pageWidth - left, 36, { align: 'right' });
+      doc.setDrawColor(218, 225, 235);
+      doc.line(left, 39, pageWidth - left, 39);
     };
 
-    heading();
+    heading('TRIP SHEET REPORT');
+    let y = 44;
+
+    // 1. Trip Meta Cards (2x2)
     const tripDays = calculateDays(savedTrip.startDate, savedTrip.endDate);
     const meta = [
-      ['Vehicle', savedTrip.truck || '—'],
-      ['Driver', savedTrip.driver || '—'],
-      ['Trip dates', `${savedTrip.startDate || '—'} to ${savedTrip.endDate || '—'}${tripDays > 0 ? ` (${tripDays} ${tripDays === 1 ? 'day' : 'days'})` : ''}`],
-      ['Distance', `${Math.max(0, number(savedTrip.endKm) - number(savedTrip.startKm)).toLocaleString('en-IN')} KM`],
+      ['VEHICLE', savedTrip.truck || '—'],
+      ['DRIVER', savedTrip.driver || '—'],
+      ['TRIP DATES', `${savedTrip.startDate || '—'} to ${savedTrip.endDate || '—'}${tripDays > 0 ? ` (${tripDays} ${tripDays === 1 ? 'day' : 'days'})` : ''}`],
+      ['TOTAL DISTANCE', `${reportTotals.totalKm.toLocaleString('en-IN')} KM`],
     ];
     meta.forEach(([label, value], index) => {
-      const column = index % 2;
+      const col = index % 2;
       const row = Math.floor(index / 2);
-      const x = left + column * (printableWidth / 2);
-      const y = 48 + row * 15;
-      doc.setDrawColor(226, 231, 238);
-      doc.roundedRect(x, y, printableWidth / 2 - 4, 12, 1.5, 1.5, 'S');
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(112, 124, 143);
-      doc.text(label.toUpperCase(), x + 3, y + 4);
+      const cardX = left + col * (printableWidth / 2);
+      const cardY = y + row * 12;
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(cardX, cardY, printableWidth / 2 - 3, 10, 1.5, 1.5, 'FD');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(33, 47, 68);
-      doc.text(String(value), x + 3, y + 9.5, { maxWidth: printableWidth / 2 - 10 });
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(label, cardX + 3, cardY + 3.8);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(value), cardX + 3, cardY + 8);
     });
+    y += 27;
 
+    // 2. Freight Details & Payment Receipts
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(25, 39, 58);
-    doc.text('Freight details', left, 82);
-    let y = 90;
-    const widths = tableHeading(y);
-    y += 11;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    (savedTrip.freights || []).forEach((item, index) => {
-      if (y > 265) {
-        doc.addPage();
-        heading();
-        y = 48;
-        tableHeading(y);
-        y += 11;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-      }
-      const lrTotal = number(item.amount) + number(item.loadingCharge) + number(item.unloadingCharge);
-      const lrPending = Math.max(0, lrTotal - number(item.received));
-      const routeText = item.transporterName ? `${item.transporterName} (${item.from || ''} - ${item.to || ''})` : `${item.from || ''} - ${item.to || ''}`;
-      const cells = [
-        String(index + 1),
-        routeText,
-        item.material || '',
-        `${number(item.weight)} t`,
-        inr(lrTotal),
-        inr(item.received),
-        inr(lrPending),
-      ];
-      let x = left + 2;
-      cells.forEach((cell, cellIndex) => {
-        const maxWidth = widths[cellIndex] - 4;
-        const text = doc.splitTextToSize(String(cell), maxWidth)[0] || '';
-        doc.setTextColor(cellIndex >= 4 ? 35 : 60, cellIndex >= 4 ? 49 : 71, cellIndex >= 4 ? 69 : 91);
-        doc.text(text, x, y);
-        x += widths[cellIndex];
-      });
-      doc.setDrawColor(232, 236, 241);
-      doc.line(left, y + 4, pageWidth - left, y + 4);
-      y += 10;
+    doc.setFontSize(10);
+    doc.setTextColor(20, 33, 54);
+    doc.text('1. Freight Details & Payment Receipts', left, y);
+    y += 4.5;
+
+    const fWidths = [12, 70, 30, 35, 35];
+    doc.setFillColor(241, 245, 249);
+    doc.rect(left, y, printableWidth, 6, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(51, 65, 85);
+    let fx = left + 2;
+    ['LR', 'PARTICULAR / TRANSPORTER', 'DATE', 'PAYMENT MODE', 'AMOUNT'].forEach((h, i) => {
+      doc.text(h, fx, y + 4.2);
+      fx += fWidths[i];
     });
-
-    if (y > 238) {
-      doc.addPage();
-      heading();
-      y = 48;
-    } else {
-      y += 8;
-    }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(25, 39, 58);
-    doc.text('Financial summary', left, y);
     y += 8;
-    const summary = [
-      ['Freight collection', reportTotals.freight],
-      ['Freight received', reportTotals.received],
-      ['Freight pending', reportTotals.pending],
-      ['Diesel expense (Paid by owner)', reportTotals.dieselOwner],
-      ...(reportTotals.dieselDriver > 0 ? [['Diesel paid by driver', reportTotals.dieselDriver]] : []),
-      ['Other expenses (Paid by owner)', reportTotals.otherOwner],
-      ...(reportTotals.otherDriver > 0 ? [['Other expenses paid by driver', reportTotals.otherDriver]] : []),
-      ['Toll expense (Paid by owner)', reportTotals.tollsOwner],
-      ...(reportTotals.tollsDriver > 0 ? [['Tolls paid by driver', reportTotals.tollsDriver]] : []),
-      ['Bill expenses (Paid by owner)', reportTotals.vehicleOwner],
-      ...(reportTotals.vehicleDriver > 0 ? [['Bill expenses paid by driver', reportTotals.vehicleDriver]] : []),
-      ...(reportTotals.driverBata > 0 ? [[`Driver bata (${reportTotals.driverBataPct}%)`, reportTotals.driverBata]] : []),
-      ['Total operating expenses', reportTotals.operatingExpenses],
-      ['Net profit', reportTotals.netProfit],
-      ['Driver advance paid (Gross)', reportTotals.grossDriverAdvance],
-      ...(reportTotals.dieselDriver > 0 ? [['Less: Diesel paid by driver', -reportTotals.dieselDriver]] : []),
-      ...(reportTotals.tollsDriver > 0 ? [['Less: Tolls paid by driver', -reportTotals.tollsDriver]] : []),
-      ...(reportTotals.otherDriver > 0 ? [['Less: Other expenses paid by driver', -reportTotals.otherDriver]] : []),
-      ...(reportTotals.vehicleDriver > 0 ? [['Less: Bill expenses paid by driver', -reportTotals.vehicleDriver]] : []),
-      ['Net driver advance', reportTotals.driverAdvance],
-      ['Driver balance paid', reportTotals.driverBalancePaid],
-      ['Driver settlement', reportTotals.finalPayable],
-    ];
-    summary.forEach(([label, value], index) => {
-      if (y > 276) {
-        doc.addPage();
-        heading();
-        y = 38;
-      }
-      const isOperatingTotal = label === 'Total operating expenses';
-      const isNetProfit = label === 'Net profit';
-      const isSettlement = label === 'Driver settlement';
-      const isTotalLine = isOperatingTotal || isNetProfit || isSettlement;
 
-      if (isOperatingTotal) doc.setDrawColor(172, 182, 196);
-      else doc.setDrawColor(234, 237, 242);
-      doc.line(left, y + 2, pageWidth - left, y + 2);
-      doc.setFont('helvetica', isTotalLine ? 'bold' : 'normal');
-      doc.setFontSize(isTotalLine ? 9 : 8);
-      doc.setTextColor(69, 82, 101);
-      doc.text(label, left + 1, y);
-      doc.setTextColor(isNetProfit && reportTotals.netProfit >= 0 ? 20 : 69, isNetProfit && reportTotals.netProfit >= 0 ? 120 : 82, isNetProfit && reportTotals.netProfit >= 0 ? 83 : 101);
-      doc.text(inr(Math.abs(value)), pageWidth - left - 1, y, { align: 'right' });
-      if (isSettlement) {
+    (savedTrip.freights || []).forEach((item, index) => {
+      const lrTotal = number(item.amount) + number(item.loadingCharge) + number(item.unloadingCharge);
+      const advance = number(item.received);
+      const balancePayments = Array.isArray(item.balancePayments) ? item.balancePayments : [];
+      const balTotal = balancePayments.reduce((sum, b) => sum + number(b.amount), 0);
+      const totalRec = advance + balTotal;
+      const pending = Math.max(0, lrTotal - totalRec);
+
+      if (y > 265) { doc.addPage(); heading(); y = 48; }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(index + 1), left + 2, y);
+      const titleText = `${item.transporterName ? `${item.transporterName} · ` : ''}${item.from || ''} → ${item.to || ''} (${item.material || 'Cargo'}, ${item.weight || 0}t)`;
+      doc.text(doc.splitTextToSize(titleText, fWidths[1] - 3)[0] || '', left + fWidths[0] + 2, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(savedTrip.startDate || '—', left + fWidths[0] + fWidths[1] + 2, y);
+      doc.text('Freight Billed', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+      doc.setFont('helvetica', 'bold');
+      doc.text(inr(lrTotal), pageWidth - left - 2, y, { align: 'right' });
+      doc.setDrawColor(241, 245, 249);
+      doc.line(left, y + 1.5, pageWidth - left, y + 1.5);
+      y += 5.5;
+
+      // Advance Received
+      if (advance > 0 || item.received !== '') {
+        if (y > 265) { doc.addPage(); heading(); y = 48; }
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
-        doc.text(value < 0 ? 'Recoverable from driver' : 'Payable to driver', pageWidth - left - 1, y + 4, { align: 'right' });
+        doc.setTextColor(71, 85, 105);
+        doc.text('└ Advance Received', left + fWidths[0] + 6, y);
+        doc.text(item.advanceDate || savedTrip.startDate || '—', left + fWidths[0] + fWidths[1] + 2, y);
+        doc.text(item.paymentMode || 'GPay', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+        doc.setTextColor(5, 150, 105);
+        doc.text(inr(advance), pageWidth - left - 2, y, { align: 'right' });
+        y += 5;
       }
-      y += isSettlement ? 10 : 8;
+
+      // Balance Receipts
+      balancePayments.forEach((bal, bIdx) => {
+        if (y > 265) { doc.addPage(); heading(); y = 48; }
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`└ Balance Receipt #${bIdx + 1}`, left + fWidths[0] + 6, y);
+        doc.text(bal.date || '—', left + fWidths[0] + fWidths[1] + 2, y);
+        doc.text(bal.paymentMode || 'Account transfer', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+        doc.setTextColor(5, 150, 105);
+        doc.text(inr(bal.amount), pageWidth - left - 2, y, { align: 'right' });
+        y += 5;
+      });
+
+      // Pending from transporter
+      if (pending > 0) {
+        if (y > 265) { doc.addPage(); heading(); y = 48; }
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(7);
+        doc.setTextColor(180, 83, 9);
+        doc.text('└ Remaining Pending', left + fWidths[0] + 6, y);
+        doc.text('Unsettled', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+        doc.text(inr(pending), pageWidth - left - 2, y, { align: 'right' });
+        y += 5.5;
+      }
+      doc.setDrawColor(226, 232, 240);
+      doc.line(left, y - 1, pageWidth - left, y - 1);
+      y += 2.5;
     });
+
+    // Freight Totals Bar
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(left, y, printableWidth, 11, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Total Freight: ${inr(reportTotals.freight)}`, left + 4, y + 4.2);
+    doc.setTextColor(5, 150, 105);
+    doc.text(`Adv: ${inr(reportTotals.advanceReceived)}`, left + 52, y + 4.2);
+    doc.text(`Bal Rec: ${inr(reportTotals.balanceReceived)}`, left + 90, y + 4.2);
+    doc.text(`Total Rec: ${inr(reportTotals.received)}`, left + 130, y + 4.2);
+    doc.setTextColor(reportTotals.pending > 0 ? 180 : 5, reportTotals.pending > 0 ? 83 : 150, reportTotals.pending > 0 ? 9 : 105);
+    doc.text(`PENDING TO RECEIVE FROM TRANSPORTER: ${inr(reportTotals.pending)}`, left + 4, y + 8.8);
+    y += 16;
+
+    // 3. Trip Operational Expenses & Net Profit
+    if (y > 225) { doc.addPage(); heading(); y = 48; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(20, 33, 54);
+    doc.text('2. Trip Operational Expenses (Paid by Owner) & Net Profit', left, y);
+    y += 5;
+
+    const opsItems = [
+      ['Diesel expense (Paid by owner)', `${reportTotals.totalLitres} L | ${reportTotals.totalKm} KM | Mileage: ${reportTotals.mileage} KM/L`, reportTotals.dieselOwner],
+      ['FASTag toll expense (Paid by owner)', 'Recharge / statement payments', reportTotals.tollsOwner],
+      ['Police case & RTO expense (Paid by owner)', 'Checkpost, fines & permits', reportTotals.policeOwner],
+      ['Bill expenses (Paid by owner)', 'Tyre puncture, AdBlue & repairs', reportTotals.vehicleOwner],
+      ['Other expenses (Paid by owner)', 'Food, loading, coolie & misc.', reportTotals.otherOwner],
+      ...(reportTotals.driverBata > 0 ? [[`Driver bata (${reportTotals.driverBataPct}%)`, 'Driver trip bata allowance', reportTotals.driverBata]] : []),
+      ['TOTAL OPERATING EXPENSES', 'All operating expenses paid by owner', reportTotals.operatingExpenses],
+      ['NET PROFIT', 'Total Freight Collection minus Total Operating Expenses', reportTotals.netProfit],
+      ['PENDING AMOUNT TO RECEIVE', 'Freight balance still due from transporters', reportTotals.pending],
+    ];
+
+    opsItems.forEach(([label, desc, val]) => {
+      if (y > 268) { doc.addPage(); heading(); y = 48; }
+      const isHighlight = label === 'TOTAL OPERATING EXPENSES' || label === 'NET PROFIT' || label === 'PENDING AMOUNT TO RECEIVE';
+      doc.setDrawColor(isHighlight ? 203 : 241, isHighlight ? 213 : 245, isHighlight ? 225 : 249);
+      doc.line(left, y + 1.5, pageWidth - left, y + 1.5);
+      doc.setFont('helvetica', isHighlight ? 'bold' : 'normal');
+      doc.setFontSize(isHighlight ? 8 : 7.2);
+      doc.setTextColor(isHighlight ? 15 : 71, isHighlight ? 23 : 85, isHighlight ? 42 : 105);
+      doc.text(label, left + 2, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(desc, left + 75, y);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(isHighlight ? 8.5 : 7.5);
+      if (label === 'NET PROFIT') {
+        doc.setTextColor(val >= 0 ? 5 : 220, val >= 0 ? 150 : 38, val >= 0 ? 105 : 38);
+      } else if (label === 'PENDING AMOUNT TO RECEIVE') {
+        doc.setTextColor(val > 0 ? 180 : 5, val > 0 ? 83 : 150, val > 0 ? 9 : 105);
+      } else {
+        doc.setTextColor(15, 23, 42);
+      }
+      doc.text(inr(val), pageWidth - left - 2, y, { align: 'right' });
+      y += isHighlight ? 7 : 5.5;
+    });
+    y += 8;
+
+    // 4. Driver Operated Expenses & Settlement
+    if (y > 215) { doc.addPage(); heading(); y = 48; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(20, 33, 54);
+    doc.text('3. Driver Operated Expenses & Settlement Account', left, y);
+    y += 5;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('A. Expenses Paid by Driver (Incurred en route):', left + 2, y);
+    y += 4.5;
+
+    const driverExpenseRows = [];
+    (savedTrip.diesel || []).filter(d => number(d.paidByDriver) > 0).forEach(d => {
+      const rate = number(d.litres) ? (number(d.amount) / number(d.litres)).toFixed(2) : '—';
+      driverExpenseRows.push(['Diesel', d.station || 'Fuel pump', d.date || '—', `${d.litres || 0} L`, `KM: ${d.km || '—'} (₹${rate}/L)`, number(d.paidByDriver)]);
+    });
+    (savedTrip.expenses?.tolls || []).filter(t => number(t.paidByDriver) > 0).forEach(t => {
+      driverExpenseRows.push(['FASTag Toll', t.location || 'Plaza toll', t.date || '—', '—', 'Driver paid', number(t.paidByDriver)]);
+    });
+    (savedTrip.expenses?.policeRtoExpenses || []).filter(p => number(p.paidByDriver) > 0).forEach(p => {
+      driverExpenseRows.push(['Police / RTO', p.name || 'Checkpoint/Fine', p.date || '—', '—', 'Driver paid', number(p.paidByDriver)]);
+    });
+    (savedTrip.expenses?.otherExpenses || []).filter(o => number(o.paidByDriver) > 0).forEach(o => {
+      driverExpenseRows.push(['Other Expense', o.name || 'Expense', o.date || '—', '—', 'Driver paid', number(o.paidByDriver)]);
+    });
+    (savedTrip.expenses?.vehicleExpenses || []).filter(v => number(v.paidByDriver) > 0).forEach(v => {
+      driverExpenseRows.push(['Bill Expense', v.name || v.type || 'Repair', v.date || '—', '—', 'Driver paid', number(v.paidByDriver)]);
+    });
+
+    if (driverExpenseRows.length === 0) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text('No driver-operated expenses recorded for this trip.', left + 4, y);
+      y += 6;
+    } else {
+      const dWidths = [24, 52, 24, 20, 34, 28];
+      doc.setFillColor(241, 245, 249);
+      doc.rect(left, y, printableWidth, 5.5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(51, 65, 85);
+      let dx = left + 2;
+      ['EXPENSE', 'DETAILS', 'DATE', 'LITRES', 'KM / RATE', 'AMOUNT'].forEach((h, i) => {
+        doc.text(h, dx, y + 3.8);
+        dx += dWidths[i];
+      });
+      y += 7;
+
+      driverExpenseRows.forEach(([category, detail, date, litres, kmRate, amt]) => {
+        if (y > 268) { doc.addPage(); heading(); y = 48; }
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.8);
+        doc.setTextColor(51, 65, 85);
+        doc.text(category, left + 2, y);
+        doc.text(doc.splitTextToSize(detail, dWidths[1] - 2)[0] || '', left + dWidths[0] + 2, y);
+        doc.text(date, left + dWidths[0] + dWidths[1] + 2, y);
+        doc.text(litres, left + dWidths[0] + dWidths[1] + dWidths[2] + 2, y);
+        doc.text(kmRate, left + dWidths[0] + dWidths[1] + dWidths[2] + dWidths[3] + 2, y);
+        doc.setFont('helvetica', 'bold');
+        doc.text(inr(amt), pageWidth - left - 2, y, { align: 'right' });
+        y += 5;
+      });
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.2);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Total Driver-Operated Expenses: ${inr(reportTotals.totalDriverExpenses)}`, pageWidth - left - 2, y, { align: 'right' });
+      y += 7.5;
+    }
+
+    // Driver Settlement Summary
+    if (y > 230) { doc.addPage(); heading(); y = 48; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('B. Driver Advance & Settlement Balance:', left + 2, y);
+    y += 4.5;
+
+    const advList = (savedTrip.expenses?.driverAdvances || []).map(a => `${a.date}: ${inr(a.amount)}`).join(', ');
+    const setRows = [
+      ['Driver Advance Given', advList ? `Dates: ${advList}` : 'No advances recorded', inr(reportTotals.grossDriverAdvance)],
+      ['Less: Expenses paid by driver', 'Subtracted from advance', `- ${inr(reportTotals.totalDriverExpenses)}`],
+      ['Net Advance with Driver', 'Advance amount remaining in driver hand', inr(reportTotals.driverAdvance)],
+      ['Driver Bata / Commission Earned', reportTotals.driverBataPct > 0 ? `${reportTotals.driverBataPct}% of freight` : 'Commission', `+ ${inr(reportTotals.driverBata || reportTotals.commission)}`],
+      ...(reportTotals.driverBalancePaid > 0 ? [['Driver Balance Paid during trip', 'Paid towards settlement', `- ${inr(reportTotals.driverBalancePaid)}`]] : []),
+    ];
+
+    setRows.forEach(([lbl, sub, val]) => {
+      if (y > 268) { doc.addPage(); heading(); y = 48; }
+      doc.setDrawColor(241, 245, 249);
+      doc.line(left, y + 1.2, pageWidth - left, y + 1.2);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.2);
+      doc.setTextColor(71, 85, 105);
+      doc.text(lbl, left + 2, y);
+      doc.setFontSize(6.8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(sub, left + 75, y);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.2);
+      doc.setTextColor(15, 23, 42);
+      doc.text(val, pageWidth - left - 2, y, { align: 'right' });
+      y += 5;
+    });
+
+    // Final Status Box
+    y += 2.5;
+    const isPayable = reportTotals.finalPayable > 0;
+    const isRecoverable = reportTotals.finalPayable < 0;
+    doc.setFillColor(isPayable ? 254 : 240, isPayable ? 242 : 253, isPayable ? 242 : 244);
+    doc.setDrawColor(isPayable ? 239 : 34, isPayable ? 68 : 197, isPayable ? 68 : 94);
+    doc.roundedRect(left, y, printableWidth, 10, 1.5, 1.5, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    if (isPayable) {
+      doc.setTextColor(185, 28, 28);
+      doc.text(`STILL AMOUNT TO PAY TO DRIVER: ${inr(reportTotals.finalPayable)}`, left + 4, y + 6.5);
+    } else if (isRecoverable) {
+      doc.setTextColor(21, 128, 61);
+      doc.text(`EXCESS ADVANCE WITH DRIVER (RECOVERABLE): ${inr(Math.abs(reportTotals.finalPayable))}`, left + 4, y + 6.5);
+    } else {
+      doc.setTextColor(5, 150, 105);
+      doc.text('DRIVER ACCOUNT FULLY SETTLED (NIL BALANCE)', left + 4, y + 6.5);
+    }
 
     const filename = `${settings.transporter || DEFAULT_SETTINGS.transporter} ${savedTrip.tripNumber || 'Trip Sheet'}`
       .replace(/[<>:"/\\|?*]+/g, '-').trim();
@@ -953,15 +1240,19 @@ function App() {
   const overallPending = useMemo(() => sortedTrips.reduce((sum, item) => sum + calculate(item).pending, 0), [sortedTrips]);
   const freightDetails = useMemo(() => sortedTrips.flatMap((savedTrip) => (savedTrip.freights || []).map((freight, index) => {
     const totalLr = number(freight.amount) + number(freight.loadingCharge) + number(freight.unloadingCharge);
+    const balTotal = (freight.balancePayments || []).reduce((sum, b) => sum + number(b.amount), 0);
+    const totalRec = number(freight.received) + balTotal;
     return {
       ...freight,
       totalLr,
+      balTotal,
+      totalRec,
       tripId: savedTrip.id,
       tripNumber: savedTrip.tripNumber,
       truck: savedTrip.truck,
       driver: savedTrip.driver,
       rowNumber: index + 1,
-      settled: totalLr > 0 && number(freight.received) >= totalLr,
+      settled: totalLr > 0 && totalRec >= totalLr,
     };
   })), [sortedTrips]);
 
@@ -1091,7 +1382,21 @@ function TripEditor({ trip, totals, step, setStep, updateTrip, updateExpense, up
         ))}
       </div>
       <form className="editor-form" onSubmit={saveTrip}>
-        {step === 0 && <TripDetails trip={trip} updateTrip={updateTrip} totals={totals} addRow={addRow} updateRow={updateRow} removeRow={removeRow} vehicles={vehicles} trips={trips} />}
+        {step === 0 && (
+          <TripDetails
+            trip={trip}
+            updateTrip={updateTrip}
+            totals={totals}
+            addRow={addRow}
+            updateRow={updateRow}
+            removeRow={removeRow}
+            vehicles={vehicles}
+            trips={trips}
+            addFreightBalance={addFreightBalance}
+            updateFreightBalance={updateFreightBalance}
+            removeFreightBalance={removeFreightBalance}
+          />
+        )}
         {step === 1 && <TripExpenses trip={trip} totals={totals} updateExpense={updateExpense} updateRow={updateRow} addRow={addRow} removeRow={removeRow} />}
         {step === 2 && <Settlement trip={trip} totals={totals} updateExpense={updateExpense} />}
         <div className="form-navigation">
@@ -1107,7 +1412,7 @@ function TripEditor({ trip, totals, step, setStep, updateTrip, updateExpense, up
   );
 }
 
-function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, vehicles, trips }) {
+function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, vehicles, trips, addFreightBalance, updateFreightBalance, removeFreightBalance }) {
   return (
     <>
       <section className="panel">
@@ -1170,7 +1475,11 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
         <div className="freight-entries-list">
           {trip.freights.map((row, index) => {
             const lrTotal = number(row.amount) + number(row.loadingCharge) + number(row.unloadingCharge);
-            const lrPending = Math.max(0, lrTotal - number(row.received));
+            const advance = number(row.received);
+            const balancePayments = Array.isArray(row.balancePayments) ? row.balancePayments : [];
+            const balReceived = balancePayments.reduce((sum, b) => sum + number(b.amount), 0);
+            const totalRec = advance + balReceived;
+            const lrPending = Math.max(0, lrTotal - totalRec);
             return (
               <div className="freight-entry-card" key={row.id}>
                 <div className="freight-card-header">
@@ -1198,7 +1507,7 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
                   <Field label="Advance received (₹)" type="number" min="0" value={row.received} onChange={(value) => updateRow('freights', row.id, 'received', value)} placeholder="0" />
                   <Field label="Advance date" type="date" value={row.advanceDate || trip.startDate || today} onChange={(value) => updateRow('freights', row.id, 'advanceDate', value)} />
                   <label className="field">
-                    <span>Mode of payment</span>
+                    <span>Advance payment mode</span>
                     <select
                       className="field-select"
                       value={row.paymentMode || 'GPay'}
@@ -1212,17 +1521,85 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
                   </label>
                 </div>
 
+                {/* Multiple Balance Payments Section */}
+                <div className="freight-balance-section">
+                  <div className="freight-balance-header">
+                    <div>
+                      <strong>Balance payments received ({balancePayments.length})</strong>
+                      <span className="balance-header-sub">Record multiple installments as transporter pays balance (e.g. ₹10,000, then ₹40,000)</span>
+                    </div>
+                    <Button type="button" onClick={() => addFreightBalance(row.id)}>＋ Add balance amount</Button>
+                  </div>
+
+                  {balancePayments.length > 0 ? (
+                    <div className="freight-balance-list">
+                      {balancePayments.map((bal, bIdx) => (
+                        <div className="balance-payment-item" key={bal.id}>
+                          <span className="balance-idx-chip">Balance #{bIdx + 1}</span>
+                          <Field
+                            label="Balance amount (₹)"
+                            type="number"
+                            min="0"
+                            value={bal.amount}
+                            onChange={(val) => updateFreightBalance(row.id, bal.id, 'amount', val)}
+                            placeholder="0"
+                          />
+                          <Field
+                            label="Received date"
+                            type="date"
+                            value={bal.date}
+                            onChange={(val) => updateFreightBalance(row.id, bal.id, 'date', val)}
+                          />
+                          <label className="field">
+                            <span>Mode of payment</span>
+                            <select
+                              className="field-select"
+                              value={bal.paymentMode || 'Account transfer'}
+                              onChange={(e) => updateFreightBalance(row.id, bal.id, 'paymentMode', e.target.value)}
+                            >
+                              <option value="Account transfer">Account transfer</option>
+                              <option value="GPay">GPay</option>
+                              <option value="Cash to owner">Cash to owner</option>
+                              <option value="Cash to driver">Cash to driver</option>
+                            </select>
+                          </label>
+                          <button
+                            className="icon-button row-delete"
+                            type="button"
+                            onClick={() => removeFreightBalance(row.id, bal.id)}
+                            aria-label={`Remove balance receipt ${bIdx + 1}`}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="balance-empty-hint">No balance payments recorded yet. Click “＋ Add balance amount” when transporter pays further installments.</div>
+                  )}
+                </div>
+
                 <div className="freight-card-footer">
                   <div className="freight-footer-item">
                     <span>Total LR Billing:</span>
                     <strong>{amount(lrTotal)}</strong>
                   </div>
                   <div className="freight-footer-item">
-                    <span>Advance received ({row.paymentMode || 'GPay'}):</span>
-                    <strong style={{ color: '#059669' }}>{amount(row.received)}</strong>
+                    <span>Advance ({row.paymentMode || 'GPay'}):</span>
+                    <strong style={{ color: '#059669' }}>{amount(advance)}</strong>
+                  </div>
+                  {balReceived > 0 && (
+                    <div className="freight-footer-item">
+                      <span>Balance receipts ({balancePayments.length}):</span>
+                      <strong style={{ color: '#059669' }}>{amount(balReceived)}</strong>
+                    </div>
+                  )}
+                  <div className="freight-footer-item">
+                    <span>Total received:</span>
+                    <strong style={{ color: '#059669' }}>{amount(totalRec)}</strong>
                   </div>
                   <div className="freight-footer-item">
-                    <span>Pending balance:</span>
+                    <span>Remaining pending:</span>
                     <strong style={{ color: lrPending > 0 ? '#b45309' : '#059669' }}>{amount(lrPending)}</strong>
                   </div>
                 </div>
@@ -1236,7 +1613,10 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
           {(number(totals.loadingTotal) > 0 || number(totals.unloadingTotal) > 0) && (
             <div><span>Loading & Unloading: </span><strong>{amount(number(totals.loadingTotal) + number(totals.unloadingTotal))}</strong></div>
           )}
-          <div><span>Advance received: </span><strong style={{ color: '#059669' }}>{amount(totals.received)}</strong></div>
+          <div><span>Advance received: </span><strong style={{ color: '#059669' }}>{amount(totals.advanceReceived ?? totals.received)}</strong></div>
+          {number(totals.balanceReceived) > 0 && (
+            <div><span>Balance received: </span><strong style={{ color: '#059669' }}>{amount(totals.balanceReceived)}</strong></div>
+          )}
           <div><span>Pending balance: </span><strong style={{ color: totals.pending ? '#b45309' : '#059669' }}>{amount(totals.pending)}</strong></div>
         </div>
       </section>
@@ -1261,6 +1641,7 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
                 <Field label="Station / location" value={row.station} onChange={(value) => updateRow('diesel', row.id, 'station', value)} placeholder="Pump name" />
                 <Field label="Date" type="date" value={row.date} onChange={(value) => updateRow('diesel', row.id, 'date', value)} />
                 <Field label="Litres" type="number" min="0" step="0.1" value={row.litres} onChange={(value) => updateRow('diesel', row.id, 'litres', value)} />
+                <Field label="KM (Odometer)" type="number" min="0" value={row.km ?? ''} onChange={(value) => updateRow('diesel', row.id, 'km', value)} placeholder="e.g. 45600" />
                 <Field label="Paid by owner (₹)" type="number" min="0" value={row.paidByOwner} onChange={(value) => updateRow('diesel', row.id, 'paidByOwner', value)} placeholder="0" />
                 <Field label="Paid by driver (₹)" type="number" min="0" value={row.paidByDriver} onChange={(value) => updateRow('diesel', row.id, 'paidByDriver', value)} placeholder="0" />
                 <div className="entry-rate">
@@ -1280,12 +1661,19 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
           <div><span>Paid by owner (expense): </span><strong>{amount(totals.dieselOwner)}</strong></div>
           <div><span>Paid by driver (less advance): </span><strong>{amount(totals.dieselDriver)}</strong></div>
           <div><span>Total diesel: </span><strong>{amount(totals.dieselTotal)}</strong></div>
+          <div><span>Total litres: </span><strong>{totals.totalLitres || 0} L</strong></div>
+          {totals.mileage > 0 && (
+            <div><span>Overall mileage: </span><strong style={{ color: '#2563eb' }}>{totals.mileage} KM/L</strong></div>
+          )}
         </div>
       </section>
       <section className="panel">
         <SectionTitle icon="₹">Toll expense</SectionTitle>
-        <RepeatableEntries title="FASTag toll logs" rows={trip.expenses.tolls} group="tolls"
-          updateRow={updateRow} addRow={addRow} removeRow={removeRow} locationLabel="Plaza / location" />
+        <TollEntries rows={trip.expenses.tolls || []} updateRow={updateRow} addRow={addRow} removeRow={removeRow} />
+      </section>
+      <section className="panel">
+        <SectionTitle icon="⚖">Police case & RTO expense</SectionTitle>
+        <PoliceRtoEntries rows={trip.expenses.policeRtoExpenses || []} updateRow={updateRow} addRow={addRow} removeRow={removeRow} />
       </section>
       <section className="panel">
         <SectionTitle icon="▣">Bill expense</SectionTitle>
@@ -1314,6 +1702,12 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
             <strong className="positive">- {amount(totals.tollsDriver)}</strong>
           </div>
         )}
+        {totals.policeDriver > 0 && (
+          <div className="driver-advance-adjustment">
+            <span>Less: Police & RTO paid by driver (subtracted from advance)</span>
+            <strong className="positive">- {amount(totals.policeDriver)}</strong>
+          </div>
+        )}
         {totals.otherDriver > 0 && (
           <div className="driver-advance-adjustment">
             <span>Less: Other expenses paid by driver (subtracted from advance)</span>
@@ -1334,9 +1728,10 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
           amountLabel="Balance paid (₹)" totalLabel="Total balance paid" emptyText="No balance payments recorded."
           updateRow={updateRow} addRow={addRow} removeRow={removeRow} />
         <div className="driver-balance-summary">
-          <span>Balance payable after recorded payments</span>
-          <strong className={totals.finalPayable < 0 ? 'negative' : 'positive'}>{amount(Math.abs(totals.finalPayable))}</strong>
-          <small>{totals.finalPayable < 0 ? 'Overpaid' : 'Remaining to pay'}</small>
+          <span>Final settlement balance</span>
+          <strong className={totals.finalPayable < 0 ? 'positive' : 'negative'}>
+            {totals.finalPayable > 0 ? `Still pay to driver: ${amount(totals.finalPayable)}` : totals.finalPayable < 0 ? `Advance with driver: ${amount(Math.abs(totals.finalPayable))}` : 'Fully settled (₹0)'}
+          </strong>
         </div>
       </section>
     </>
@@ -1460,31 +1855,122 @@ function DriverPaymentEntries({ group, title, rows, amountLabel, totalLabel, emp
   );
 }
 
-function RepeatableEntries({ title, rows, group, updateRow, addRow, removeRow, locationLabel }) {
-  const ownerTotal = rows.reduce((sum, row) => {
+function TollEntries({ rows, updateRow, addRow, removeRow }) {
+  const ownerTotal = (rows || []).reduce((sum, row) => {
     if (row.paidByOwner !== undefined && row.paidByOwner !== '') return sum + number(row.paidByOwner);
     if (row.paidByDriver !== undefined && row.paidByDriver !== '') return sum;
     return sum + number(row.amount);
   }, 0);
-  const driverTotal = rows.reduce((sum, row) =>
+  const driverTotal = (rows || []).reduce((sum, row) =>
     (row.paidByDriver !== undefined && row.paidByDriver !== '') ? sum + number(row.paidByDriver) : sum, 0);
+
   return (
     <div className="repeatable-block">
-      <div className="repeatable-heading"><strong>{title}</strong><Button type="button" onClick={() => addRow(group)}>＋ Add entry</Button></div>
-      {rows.map((row, index) => (
-        <div className="repeatable-row expense-split-card" key={row.id}>
-          <Field label="Date" type="date" value={row.date} onChange={(value) => updateRow(group, row.id, 'date', value)} />
-          <Field label={locationLabel} value={row.location} onChange={(value) => updateRow(group, row.id, 'location', value)} />
-          <Field label="Paid by owner (₹)" type="number" min="0" value={row.paidByOwner ?? ''} onChange={(value) => updateRow(group, row.id, 'paidByOwner', value)} placeholder="0" />
-          <Field label="Paid by driver (₹)" type="number" min="0" value={row.paidByDriver ?? ''} onChange={(value) => updateRow(group, row.id, 'paidByDriver', value)} placeholder="0" />
+      <div className="repeatable-heading">
+        <strong>FASTag & toll entries</strong>
+        <Button type="button" onClick={() => addRow('tolls')}>＋ Add toll log</Button>
+      </div>
+      {(rows || []).map((row, index) => {
+        const isDriverPaid = row.paidBy === 'driver' || (!row.paidBy && number(row.paidByDriver) > 0 && !number(row.paidByOwner));
+        return (
+          <div className="toll-entry-card" key={row.id}>
+            <div className="toll-card-header">
+              <label className="field-compact">
+                <span>Paid by</span>
+                <select
+                  className="field-select"
+                  value={isDriverPaid ? 'driver' : 'owner'}
+                  onChange={(e) => {
+                    const mode = e.target.value;
+                    updateRow('tolls', row.id, 'paidBy', mode);
+                    if (mode === 'owner') {
+                      if (row.paidByDriver) {
+                        updateRow('tolls', row.id, 'paidByOwner', row.paidByDriver);
+                        updateRow('tolls', row.id, 'paidByDriver', '');
+                      }
+                    } else {
+                      if (row.paidByOwner) {
+                        updateRow('tolls', row.id, 'paidByDriver', row.paidByOwner);
+                        updateRow('tolls', row.id, 'paidByOwner', '');
+                      }
+                    }
+                  }}
+                >
+                  <option value="owner">Owner (Date to date statement, e.g. 23/11/2026 to 05/12/2026)</option>
+                  <option value="driver">Driver (Plaza toll paid by driver)</option>
+                </select>
+              </label>
+              <button
+                className="icon-button row-delete"
+                type="button"
+                onClick={() => removeRow('tolls', row.id)}
+                aria-label={`Remove toll entry ${index + 1}`}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="toll-card-grid">
+              {isDriverPaid ? (
+                <>
+                  <Field label="Date" type="date" value={row.date} onChange={(val) => updateRow('tolls', row.id, 'date', val)} />
+                  <Field label="Plaza / location" value={row.location} onChange={(val) => updateRow('tolls', row.id, 'location', val)} placeholder="Toll plaza name" />
+                  <Field label="Paid by driver (₹)" type="number" min="0" value={row.paidByDriver ?? ''} onChange={(val) => updateRow('tolls', row.id, 'paidByDriver', val)} placeholder="0" />
+                </>
+              ) : (
+                <>
+                  <Field label="From date" type="date" value={row.date} onChange={(val) => updateRow('tolls', row.id, 'date', val)} />
+                  <Field label="To date" type="date" value={row.toDate || ''} onChange={(val) => updateRow('tolls', row.id, 'toDate', val)} />
+                  <Field label="FASTag description" value={row.location || ''} onChange={(val) => updateRow('tolls', row.id, 'location', val)} placeholder="e.g. FASTag statement / recharge" />
+                  <Field label="Paid by owner (₹)" type="number" min="0" value={row.paidByOwner ?? ''} onChange={(val) => updateRow('tolls', row.id, 'paidByOwner', val)} placeholder="0" />
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {(!rows || !rows.length) && <div className="empty-row">No toll entries recorded.</div>}
+      <div className="total-strip diesel-summary-strip">
+        <div><span>Paid by owner (statement): </span><strong>{amount(ownerTotal)}</strong></div>
+        <div><span>Paid by driver (less advance): </span><strong>{amount(driverTotal)}</strong></div>
+        <div><span>Total tolls: </span><strong>{amount(ownerTotal + driverTotal)}</strong></div>
+      </div>
+    </div>
+  );
+}
+
+function PoliceRtoEntries({ rows, updateRow, addRow, removeRow }) {
+  const ownerTotal = (rows || []).reduce((sum, row) => {
+    if (row.paidByOwner !== undefined && row.paidByOwner !== '') return sum + number(row.paidByOwner);
+    if (row.paidByDriver !== undefined && row.paidByDriver !== '') return sum;
+    return sum + number(row.amount);
+  }, 0);
+  const driverTotal = (rows || []).reduce((sum, row) =>
+    (row.paidByDriver !== undefined && row.paidByDriver !== '') ? sum + number(row.paidByDriver) : sum, 0);
+  const total = ownerTotal + driverTotal;
+
+  return (
+    <div className="repeatable-block">
+      <div className="repeatable-heading">
+        <strong>Police case & RTO expenses</strong>
+        <Button type="button" onClick={() => addRow('policeRtoExpenses')}>＋ Add police / RTO</Button>
+      </div>
+      {(rows || []).map((row, index) => (
+        <div className="repeatable-row police-rto-row expense-split-card" key={row.id}>
+          <Field label="Date" type="date" value={row.date} onChange={(value) => updateRow('policeRtoExpenses', row.id, 'date', value)} />
+          <Field label="Expense name / Reason" value={row.name} onChange={(value) => updateRow('policeRtoExpenses', row.id, 'name', value)} placeholder="e.g. Overload, Checkpost, RTO permit fine" />
+          <Field label="Paid by owner (₹)" type="number" min="0" value={row.paidByOwner ?? ''} onChange={(value) => updateRow('policeRtoExpenses', row.id, 'paidByOwner', value)} placeholder="0" />
+          <Field label="Paid by driver (₹)" type="number" min="0" value={row.paidByDriver ?? ''} onChange={(value) => updateRow('policeRtoExpenses', row.id, 'paidByDriver', value)} placeholder="0" />
           <div className="entry-rate"><span>Total</span><strong>{amount(number(row.paidByOwner) + number(row.paidByDriver) || number(row.amount))}</strong></div>
-          <button className="icon-button row-delete" type="button" onClick={() => removeRow(group, row.id)} aria-label={`Remove ${title} entry ${index + 1}`}>×</button>
+          <button className="icon-button row-delete" type="button" onClick={() => removeRow('policeRtoExpenses', row.id)}
+            aria-label={`Remove police / RTO entry ${index + 1}`}>×</button>
         </div>
       ))}
+      {(!rows || !rows.length) && <div className="empty-row">No police case or RTO expenses recorded.</div>}
       <div className="total-strip diesel-summary-strip">
         <div><span>Paid by owner (expense): </span><strong>{amount(ownerTotal)}</strong></div>
         <div><span>Paid by driver (less advance): </span><strong>{amount(driverTotal)}</strong></div>
-        <div><span>Total tolls: </span><strong>{amount(ownerTotal + driverTotal)}</strong></div>
+        <div><span>Total Police & RTO: </span><strong>{amount(total)}</strong></div>
       </div>
     </div>
   );
@@ -1499,6 +1985,8 @@ function Settlement({ trip, totals, updateExpense }) {
     ...(totals.otherDriver > 0 ? [['Other expenses paid by driver (adjusted in advance)', -totals.otherDriver, 'neutral']] : []),
     ['Toll expense (Paid by owner)', -totals.tollsOwner],
     ...(totals.tollsDriver > 0 ? [['Tolls paid by driver (adjusted in advance)', -totals.tollsDriver, 'neutral']] : []),
+    ['Police & RTO expenses (Paid by owner)', -totals.policeOwner],
+    ...(totals.policeDriver > 0 ? [['Police & RTO paid by driver (adjusted in advance)', -totals.policeDriver, 'neutral']] : []),
     ['Bill expenses (Paid by owner)', -totals.vehicleOwner],
     ...(totals.vehicleDriver > 0 ? [['Bill expenses paid by driver (adjusted in advance)', -totals.vehicleDriver, 'neutral']] : []),
     ...(totals.driverBata > 0 ? [[`Driver bata (${totals.driverBataPct}%)`, -totals.driverBata]] : []),
@@ -1627,7 +2115,7 @@ function FreightDetails({ freights, onEdit, onDelete, transporter }) {
   const unsettled = freights.filter((freight) => !freight.settled);
   const settled = freights.filter((freight) => freight.settled);
   const visibleFreights = status === 'settled' ? settled : unsettled;
-  const pendingAmount = unsettled.reduce((sum, freight) => sum + Math.max(0, (freight.totalLr || number(freight.amount)) - number(freight.received)), 0);
+  const pendingAmount = unsettled.reduce((sum, freight) => sum + Math.max(0, (freight.totalLr || number(freight.amount)) - (freight.totalRec ?? number(freight.received))), 0);
   const settledAmount = settled.reduce((sum, freight) => sum + (freight.totalLr || number(freight.amount)), 0);
 
   return (
@@ -1652,7 +2140,8 @@ function FreightDetails({ freights, onEdit, onDelete, transporter }) {
           <div className="freight-detail-list">
             {visibleFreights.map((freight, index) => {
               const lrTotal = freight.totalLr || (number(freight.amount) + number(freight.loadingCharge) + number(freight.unloadingCharge));
-              const balance = Math.max(0, lrTotal - number(freight.received));
+              const totalRec = freight.totalRec ?? (number(freight.received) + (freight.balancePayments || []).reduce((s, b) => s + number(b.amount), 0));
+              const balance = Math.max(0, lrTotal - totalRec);
               return (
                 <article className="freight-detail-card" key={`${freight.tripId}-${freight.id || index}`}>
                   <div className="freight-detail-heading">
@@ -1682,8 +2171,32 @@ function FreightDetails({ freights, onEdit, onDelete, transporter }) {
                         {freight.paymentMode ? <small style={{ display: 'block', fontSize: '10px', color: '#64748b' }}>via {freight.paymentMode}</small> : null}
                       </strong>
                     </div>
-                    <div><span>Balance</span><strong className={balance ? 'negative' : 'positive'}>{amount(balance)}</strong></div>
+                    {freight.balancePayments && freight.balancePayments.length > 0 && (
+                      <div>
+                        <span>Bal. received</span>
+                        <strong style={{ color: '#0284c7' }}>
+                          {amount(freight.balancePayments.reduce((s, b) => s + number(b.amount), 0))}
+                          <small style={{ display: 'block', fontSize: '10px', color: '#64748b' }}>({freight.balancePayments.length} installment{freight.balancePayments.length > 1 ? 's' : ''})</small>
+                        </strong>
+                      </div>
+                    )}
+                    <div>
+                      <span>Total received</span>
+                      <strong style={{ color: '#0f766e' }}>{amount(totalRec)}</strong>
+                    </div>
+                    <div><span>Pending balance</span><strong className={balance ? 'negative' : 'positive'}>{amount(balance)}</strong></div>
                   </div>
+                  {freight.balancePayments && freight.balancePayments.length > 0 && (
+                    <div style={{ background: '#f8fafc', padding: '8px 12px', borderRadius: '6px', margin: '8px 0', fontSize: '11px', border: '1px solid #e2e8f0' }}>
+                      <strong style={{ display: 'block', marginBottom: '4px', color: '#475569' }}>Balance payment history:</strong>
+                      {freight.balancePayments.map((b, bIdx) => (
+                        <div key={b.id || bIdx} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                          <span>#{bIdx + 1} {b.date || '—'} ({b.paymentMode || 'Account transfer'}):</span>
+                          <strong>{amount(b.amount)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="freight-detail-actions">
                     <Button type="button" onClick={() => onEdit(freight.tripId)}>Edit trip sheet</Button>
                     <button className="icon-button delete-button" type="button" aria-label={`Delete trip ${freight.tripNumber}`}

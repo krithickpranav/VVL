@@ -748,6 +748,171 @@ h1, h2, p {
   gap: 8px;
 }
 
+/* Freight Multiple Balance Receipts */
+.freight-balance-section {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #f1f5f9;
+  border-radius: 9px;
+  border: 1px dashed #cbd5e1;
+}
+
+.freight-balance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.freight-balance-header strong {
+  font-size: 12px;
+  color: #334155;
+  font-weight: 700;
+}
+
+.btn-add-balance {
+  border: 1px solid #0284c7;
+  background: #f0f9ff;
+  color: #0369a1;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-add-balance:hover {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.freight-balance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.balance-payment-item {
+  display: grid;
+  grid-template-columns: auto minmax(130px, 1fr) minmax(140px, 1.2fr) minmax(160px, 1.3fr) auto;
+  gap: 8px 10px;
+  align-items: end;
+  background: #ffffff;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid #e2e8f0;
+}
+
+.balance-idx-chip {
+  align-self: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 4px 8px;
+  border-radius: 5px;
+}
+
+.balance-empty-hint {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+  padding: 6px 0;
+}
+
+/* FASTag Toll Cards */
+.toll-entry-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toll-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.toll-type-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.toll-type-badge.owner {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.toll-type-badge.driver {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.toll-payer-toggle {
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  padding: 3px;
+  border-radius: 6px;
+}
+
+.toll-payer-toggle button {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toll-payer-toggle button.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.toll-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 14px;
+  align-items: end;
+}
+
+/* Police & RTO Expense Cards */
+.police-rto-row {
+  display: grid;
+  grid-template-columns: 140px minmax(200px, 2fr) 130px 130px 110px auto;
+  gap: 10px 12px;
+  align-items: end;
+}
+
+.field-compact .field-input,
+.field-compact .field-select {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
 /* Freight Data Grid */
 .data-grid {
   width: 100%;
@@ -1951,6 +2116,56 @@ h1, h2, p {
     left: 16px;
     justify-content: center;
     max-width: none;
+  }
+
+  /* Responsive Freight Balance Items & Police/RTO on Tablet */
+  .balance-payment-item {
+    grid-template-columns: 1fr 1fr;
+    position: relative;
+    padding-top: 32px;
+  }
+
+  .balance-payment-item .balance-idx-chip {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+  }
+
+  .balance-payment-item .row-delete {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+  }
+
+  .balance-payment-item .field:nth-child(4) {
+    grid-column: 1 / -1;
+  }
+
+  .police-rto-row {
+    grid-template-columns: 1fr 1fr;
+    position: relative;
+    padding-top: 10px;
+  }
+
+  .police-rto-row .field:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+
+  .police-rto-row .entry-rate {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background: #f0f4fa;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+
+  .police-rto-row .row-delete {
+    position: absolute;
+    top: 8px;
+    right: 8px;
   }
 }
 
