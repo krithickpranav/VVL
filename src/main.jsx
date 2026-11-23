@@ -1303,6 +1303,9 @@ function App() {
               removeRow={removeRow} saveTrip={saveTrip} editing={Boolean(editingId)}
               transporter={settings.transporter} vehicles={Array.isArray(settings.vehicles) ? settings.vehicles : []}
               trips={trips}
+              addFreightBalance={addFreightBalance}
+              updateFreightBalance={updateFreightBalance}
+              removeFreightBalance={removeFreightBalance}
             />
           )}
           {page === 'dashboard' && (
@@ -1362,7 +1365,11 @@ function PageHeading({ eyebrow, title, description, action }) {
   );
 }
 
-function TripEditor({ trip, totals, step, setStep, updateTrip, updateExpense, updateRow, addRow, removeRow, saveTrip, editing, transporter, vehicles, trips }) {
+function TripEditor({
+  trip, totals, step, setStep, updateTrip, updateExpense, updateRow, addRow, removeRow,
+  saveTrip, editing, transporter, vehicles, trips,
+  addFreightBalance, updateFreightBalance, removeFreightBalance
+}) {
   const tabs = [
     { title: 'Trip & freight', icon: '↗' },
     { title: 'Fuel & expenses', icon: '⛽' },
