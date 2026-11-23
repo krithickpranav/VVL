@@ -6,6 +6,8 @@ import { db, collection, doc, setDoc, deleteDoc, onSnapshot } from './firebase';
 const STORAGE_KEY = 'logistics-trip-reports-v2';
 const SETTINGS_KEY = 'logistics-trip-settings-v1';
 const LEGACY_STORAGE_KEY = 'logistics-trip-reports-v1';
+const AUTH_SESSION_KEY = 'vvl_auth_unlocked_session_v1';
+const AUTH_LOCAL_KEY = 'vvl_auth_unlocked_local_v1';
 const DEFAULT_SETTINGS = {
   transporter: 'VETRI VELAVAN LOGISTICS',
   tagline: 'DELIVERING SUCCESS, EVERY MILE',
@@ -15,6 +17,7 @@ const DEFAULT_SETTINGS = {
   proprietor: 'SELVAMANIYAN DEVENDRA BABU',
   qualifications: 'B.E-MECH, MBA - Logistics and Supply Chain Management',
   vehicles: [],
+  appPin: '2026',
 };
 const currency = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -191,6 +194,7 @@ function loadSettings() {
     ...saved,
     transporter,
     vehicles: Array.isArray(saved.vehicles) ? saved.vehicles : [],
+    appPin: saved.appPin || DEFAULT_SETTINGS.appPin,
   };
 }
 
@@ -536,6 +540,172 @@ function SectionTitle({ icon, children, action }) {
   );
 }
 
+function PinLockScreen({ correctPin, onUnlock, transporter, toast }) {
+  const [pin, setPin] = useState('');
+  const [remember, setRemember] = useState(true);
+  const [error, setError] = useState('');
+  const [shake, setShake] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const handleDigit = (digit) => {
+    if (pin.length < 6) {
+      const next = pin + digit;
+      setPin(next);
+      setError('');
+      if (next.length === (correctPin || '2026').length) {
+        verifyPin(next);
+      }
+    }
+  };
+
+  const handleBackspace = () => {
+    setPin((prev) => prev.slice(0, -1));
+    setError('');
+  };
+
+  const handleClear = () => {
+    setPin('');
+    setError('');
+  };
+
+  const verifyPin = (candidatePin) => {
+    const pinToTest = candidatePin !== undefined ? candidatePin : pin;
+    if (pinToTest === (correctPin || '2026')) {
+      onUnlock(remember);
+    } else {
+      setError('Incorrect Security PIN. Please try again.');
+      setShake(true);
+      setTimeout(() => {
+        setShake(false);
+        setPin('');
+      }, 500);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      verifyPin();
+    }
+  };
+
+  const targetLength = Math.max(4, (correctPin || '2026').length);
+
+  return (
+    <div className="pin-lock-wrapper">
+      <div className={`pin-lock-card ${shake ? 'shake-anim' : ''}`}>
+        <div className="pin-lock-header">
+          <img
+            className="pin-lock-logo"
+            src={`${import.meta.env.BASE_URL}vetri-velavan-logo.jpeg`}
+            alt="Vetri Velavan Logistics"
+          />
+          <h2>{transporter || 'VETRI VELAVAN LOGISTICS'}</h2>
+          <span>TRANSPORT ACCOUNTS PORTAL</span>
+        </div>
+
+        <div className="pin-lock-body">
+          <div className="pin-lock-icon">🔒</div>
+          <h3>Secure Workspace Access</h3>
+          <p>Enter your Security PIN to unlock trip sheets & accounts.</p>
+
+          <div className="pin-dots-container" onClick={() => inputRef.current?.focus()}>
+            {Array.from({ length: targetLength }).map((_, i) => (
+              <span
+                key={i}
+                className={`pin-dot ${i < pin.length ? 'filled' : ''} ${error ? 'error' : ''}`}
+              />
+            ))}
+          </div>
+
+          <input
+            ref={inputRef}
+            className="pin-hidden-input"
+            type="password"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={6}
+            value={pin}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+              setPin(val);
+              setError('');
+              if (val.length === (correctPin || '2026').length) {
+                verifyPin(val);
+              }
+            }}
+            onKeyDown={handleKeyDown}
+            autoFocus
+            aria-label="Security PIN"
+          />
+
+          {error && <div className="pin-error-banner">{error}</div>}
+
+          {/* On-screen touch keypad for mobile phones, tablets & desktop */}
+          <div className="pin-keypad">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+              <button
+                key={num}
+                type="button"
+                className="pin-key"
+                onClick={() => handleDigit(String(num))}
+              >
+                {num}
+              </button>
+            ))}
+            <button type="button" className="pin-key pin-key-func" onClick={handleClear}>
+              C
+            </button>
+            <button
+              type="button"
+              className="pin-key"
+              onClick={() => handleDigit('0')}
+            >
+              0
+            </button>
+            <button
+              type="button"
+              className="pin-key pin-key-func"
+              onClick={handleBackspace}
+              aria-label="Backspace"
+            >
+              ⌫
+            </button>
+          </div>
+
+          <div className="pin-remember-row">
+            <label className="pin-checkbox-label">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+              />
+              <span>Remember this device</span>
+            </label>
+          </div>
+
+          <button
+            type="button"
+            className="button button-primary pin-unlock-btn"
+            onClick={() => verifyPin()}
+          >
+            Unlock Workspace →
+          </button>
+
+          <div className="pin-default-hint">
+            <span>🔑 Default Security PIN: <strong>2026</strong></span>
+            <small>Can be changed anytime in Settings</small>
+          </div>
+        </div>
+      </div>
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
 function App() {
   const [settings, setSettings] = useState(loadSettings);
   const [trips, setTrips] = useState(loadTrips);
@@ -547,6 +717,22 @@ function App() {
   const [storageError, setStorageError] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
   const [cloudStatus, setCloudStatus] = useState('connecting'); // 'connecting' | 'synced' | 'syncing' | 'offline'
+  const [isUnlocked, setIsUnlocked] = useState(() => {
+    try {
+      return sessionStorage.getItem(AUTH_SESSION_KEY) === 'true' || localStorage.getItem(AUTH_LOCAL_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const lockApp = useCallback(() => {
+    try {
+      sessionStorage.removeItem(AUTH_SESSION_KEY);
+      localStorage.removeItem(AUTH_LOCAL_KEY);
+    } catch {}
+    setIsUnlocked(false);
+    setToast('Workspace locked.');
+  }, []);
 
   // Firestore: Realtime sync for Settings
   useEffect(() => {
@@ -1256,6 +1442,26 @@ function App() {
     };
   })), [sortedTrips]);
 
+  if (!isUnlocked) {
+    return (
+      <PinLockScreen
+        correctPin={settings.appPin || '2026'}
+        transporter={settings.transporter}
+        toast={toast}
+        onUnlock={(rememberDevice) => {
+          try {
+            sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+            if (rememberDevice) {
+              localStorage.setItem(AUTH_LOCAL_KEY, 'true');
+            }
+          } catch {}
+          setIsUnlocked(true);
+          setToast(`Welcome to ${settings.transporter}`);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -1269,11 +1475,16 @@ function App() {
           <NavButton active={page === 'settings'} icon="⚙" onClick={() => navigate('settings')}>Settings</NavButton>
         </nav>
         <div className="sidebar-footer">
-          <span className="avatar">VVL</span>
-          <div>
-            <strong>Accounts workspace</strong>
-            <span>{cloudStatus === 'synced' ? '☁️ Cloud synced' : cloudStatus === 'syncing' ? '⏳ Syncing cloud…' : 'Local + Cloud sync'}</span>
+          <div className="sidebar-footer-user">
+            <span className="avatar">VVL</span>
+            <div>
+              <strong>Accounts workspace</strong>
+              <span>{cloudStatus === 'synced' ? '☁️ Cloud synced' : cloudStatus === 'syncing' ? '⏳ Syncing cloud…' : 'Local + Cloud sync'}</span>
+            </div>
           </div>
+          <button className="sidebar-logout-btn" type="button" onClick={lockApp} title="Lock workspace / Log out">
+            🔒 Log out
+          </button>
         </div>
       </aside>
 
@@ -1287,10 +1498,16 @@ function App() {
                 {cloudStatus === 'synced' ? '● Cloud synced' : cloudStatus === 'syncing' ? '● Syncing...' : '● Local saved'}
               </span>
             </div>
+            <button className="mobile-lock-btn" type="button" onClick={lockApp} title="Lock workspace / Log out" aria-label="Lock workspace">
+              🔒
+            </button>
           </div>
           <div className="topbar-right">
             <span className={`status-dot ${cloudStatus === 'synced' ? 'status-synced' : cloudStatus === 'syncing' ? 'status-syncing' : ''}`} />
             {cloudStatus === 'synced' ? 'Cloud synced ☁️' : cloudStatus === 'syncing' ? 'Syncing to cloud…' : cloudStatus === 'connecting' ? 'Connecting cloud…' : 'Saved locally'}
+            <button className="topbar-lock-btn" type="button" onClick={lockApp} title="Lock workspace / Log out">
+              🔒 Lock
+            </button>
             <span className="avatar">VVL</span>
           </div>
         </header>
@@ -1327,7 +1544,7 @@ function App() {
             }} onDelete={deleteTrip} transporter={settings.transporter} />
           )}
           {page === 'settings' && (
-            <Settings settings={settings} setSettings={setSettings} trips={trips.length} />
+            <Settings settings={settings} setSettings={setSettings} trips={trips.length} setToast={setToast} lockApp={lockApp} />
           )}
           {page === 'vehicles' && (
             <Vehicles settings={settings} setSettings={setSettings} setToast={setToast} />
@@ -2226,11 +2443,80 @@ function EmptyState({ title, text, action }) {
   return <div className="empty-state"><div className="empty-icon">▤</div><strong>{title}</strong><p>{text}</p>{action}</div>;
 }
 
-function Settings({ settings, setSettings, trips }) {
-  const updateSetting = (key, value) => setSettings((current) => ({ ...current, [key]: value }));
+function Settings({ settings, setSettings, trips, setToast, lockApp }) {
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinSuccess, setPinSuccess] = useState('');
+
+  const updateSetting = (key, value) => {
+    setSettings((current) => {
+      const next = { ...current, [key]: value };
+      writeStorage(SETTINGS_KEY, next);
+      setDoc(doc(db, 'settings', 'profile'), next).catch(() => {});
+      return next;
+    });
+  };
+
+  const handlePinChange = (e) => {
+    e.preventDefault();
+    setPinError('');
+    setPinSuccess('');
+    const actualCurrent = settings.appPin || '2026';
+    if (currentPin !== actualCurrent) {
+      setPinError('Current Security PIN does not match.');
+      return;
+    }
+    if (!/^\d{4,6}$/.test(newPin)) {
+      setPinError('New PIN must be 4 to 6 digits.');
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setPinError('New PIN and Confirm PIN do not match.');
+      return;
+    }
+
+    setSettings((current) => {
+      const next = { ...current, appPin: newPin };
+      writeStorage(SETTINGS_KEY, next);
+      setDoc(doc(db, 'settings', 'profile'), next).catch(() => {});
+      return next;
+    });
+
+    setCurrentPin('');
+    setNewPin('');
+    setConfirmPin('');
+    setPinSuccess('Security PIN updated successfully and synced to cloud!');
+    if (setToast) setToast('Security PIN updated successfully!');
+  };
+
   return (
     <>
-      <PageHeading eyebrow="Workspace preferences" title="Settings" description="Company details appear throughout the app and on trip sheet PDFs." />
+      <PageHeading eyebrow="Workspace preferences" title="Settings" description="Company details and app security PIN protection." />
+
+      {/* App Security & PIN Management Panel */}
+      <section className="panel settings-panel">
+        <SectionTitle icon="🔒">App Security & Login PIN</SectionTitle>
+        <div className="pin-settings-container">
+          <div className="pin-settings-status">
+            <span className="badge badge-success">● Security PIN Protection Active</span>
+            <p>Your workspace is locked with a security PIN. Anyone opening this portal must enter the correct PIN to view, create, or modify trip records.</p>
+          </div>
+          <form className="pin-change-form" onSubmit={handlePinChange}>
+            <Field label="Current PIN" type="password" maxLength="6" value={currentPin} onChange={setCurrentPin} placeholder="Enter current PIN (e.g. 2026)" required />
+            <Field label="New Security PIN (4-6 digits)" type="password" maxLength="6" value={newPin} onChange={setNewPin} placeholder="Enter new 4-6 digit PIN" required />
+            <Field label="Confirm New PIN" type="password" maxLength="6" value={confirmPin} onChange={setConfirmPin} placeholder="Re-enter new PIN" required />
+            {pinError && <div className="notice notice-error" style={{ gridColumn: '1 / -1' }}>{pinError}</div>}
+            {pinSuccess && <div className="notice notice-success" style={{ gridColumn: '1 / -1' }}>{pinSuccess}</div>}
+            <div className="pin-form-actions" style={{ gridColumn: '1 / -1', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '6px' }}>
+              <Button variant="primary" type="submit">Update Security PIN</Button>
+              {lockApp && <Button type="button" onClick={lockApp}>🔒 Lock Workspace Now</Button>}
+            </div>
+          </form>
+        </div>
+      </section>
+
       <section className="panel settings-panel">
         <SectionTitle icon="⚙">Vetri Velavan Logistics company profile</SectionTitle>
         <div className="company-profile">

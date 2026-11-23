@@ -1871,6 +1871,349 @@ h1, h2, p {
 }
 
 /* ==========================================================================
+   APP SECURITY PIN LOCK SCREEN & AUTH
+   ========================================================================== */
+
+.pin-lock-wrapper {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 20%, #1e293b 0%, #0f172a 100%);
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.pin-lock-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+.pin-lock-header {
+  background: #0f172a;
+  color: #ffffff;
+  padding: 24px 20px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-bottom: 3px solid #3b82f6;
+}
+
+.pin-lock-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  object-fit: cover;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  border: 2px solid #ffffff;
+}
+
+.pin-lock-header h2 {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  margin: 0;
+  color: #ffffff;
+}
+
+.pin-lock-header span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.pin-lock-body {
+  padding: 24px 26px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+}
+
+.pin-lock-icon {
+  font-size: 28px;
+  background: #eff6ff;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  margin-bottom: 12px;
+  border: 2px solid #dbeafe;
+}
+
+.pin-lock-body h3 {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 6px;
+}
+
+.pin-lock-body p {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 18px;
+  max-width: 300px;
+}
+
+.pin-dots-container {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 14px;
+  cursor: pointer;
+  padding: 6px;
+}
+
+.pin-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  background: #f8fafc;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pin-dot.filled {
+  background: #2563eb;
+  border-color: #2563eb;
+  transform: scale(1.15);
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
+}
+
+.pin-dot.error {
+  border-color: #ef4444;
+  background: #fee2e2;
+}
+
+.pin-hidden-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0.01;
+  width: 100%;
+  height: 100%;
+  cursor: default;
+  pointer-events: none;
+}
+
+.pin-error-banner {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  width: 100%;
+}
+
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 290px;
+  margin-bottom: 16px;
+}
+
+.pin-key {
+  height: 52px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #1e293b;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pin-key:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+
+.pin-key:active {
+  background: #cbd5e1;
+  transform: scale(0.96);
+}
+
+.pin-key-func {
+  font-size: 16px;
+  font-weight: 800;
+  color: #64748b;
+  background: #f1f5f9;
+}
+
+.pin-remember-row {
+  margin-bottom: 14px;
+}
+
+.pin-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pin-checkbox-label input {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.pin-unlock-btn {
+  width: 100%;
+  max-width: 290px;
+  height: 44px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+  cursor: pointer;
+}
+
+.pin-default-hint {
+  margin-top: 18px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px dashed #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pin-default-hint span {
+  font-size: 11px;
+  color: #475569;
+}
+
+.pin-default-hint small {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+.shake-anim {
+  animation: shake 0.4s ease;
+}
+
+/* Logout & Lock Buttons */
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-footer-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-logout-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.sidebar-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.topbar-lock-btn {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.topbar-lock-btn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+.mobile-lock-btn {
+  margin-left: auto;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pin-settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pin-settings-status p {
+  font-size: 12px;
+  color: #64748b;
+  margin: 6px 0 0;
+}
+
+.pin-change-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+
+/* ==========================================================================
    RESPONSIVE DESIGN BREAKPOINTS
    ========================================================================== */
 
