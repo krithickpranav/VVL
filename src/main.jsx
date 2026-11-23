@@ -1528,7 +1528,7 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
                       <strong>Balance payments received ({balancePayments.length})</strong>
                       <span className="balance-header-sub">Record multiple installments as transporter pays balance (e.g. ₹10,000, then ₹40,000)</span>
                     </div>
-                    <Button type="button" onClick={() => addFreightBalance(row.id)}>＋ Add balance amount</Button>
+                    <Button type="button" className="btn-add-balance" onClick={() => addFreightBalance(row.id)}>＋ Add balance amount</Button>
                   </div>
 
                   {balancePayments.length > 0 ? (
