@@ -1298,13 +1298,22 @@ function App() {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(6.8);
           doc.setTextColor(71, 85, 105);
-          const advSplitText = advDriver > 0 ? ` (Owner: ${inr(advOwner)}, Driver: ${inr(advDriver)})` : '';
-          doc.text(`- Advance Received${advSplitText}`, left + fWidths[0] + 4, y);
+          doc.text('- Advance Received', left + fWidths[0] + 4, y);
           doc.text(item.advanceDate || savedTrip.startDate || '-', left + fWidths[0] + fWidths[1] + 2, y);
           doc.text(item.paymentMode || 'GPay', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
           doc.setTextColor(5, 150, 105);
           doc.text(inr(advance), pageWidth - left - 2, y, { align: 'right' });
-          y += 4.5;
+          y += 4;
+
+          // Advance split sub-line if driver collected advance directly
+          if (advDriver > 0) {
+            checkPageBreak(5);
+            doc.setFont('helvetica', 'italic');
+            doc.setFontSize(6);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`   [Owner: ${inr(advOwner)} | Driver: ${inr(advDriver)} (adds to driver account)]`, left + fWidths[0] + 4, y);
+            y += 3.8;
+          }
         }
 
         // Balance Receipts
@@ -1338,21 +1347,37 @@ function App() {
       });
 
       // Freight Totals Bar
-      checkPageBreak(12);
+      checkPageBreak(14);
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(226, 232, 240);
-      doc.rect(left, y, printableWidth, 10, 'FD');
+      doc.rect(left, y, printableWidth, 11, 'FD');
+
+      // Line 1: Main Freight & Receipts
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.2);
       doc.setTextColor(15, 23, 42);
-      doc.text(`Total Freight: ${inr(reportTotals.freight)}`, left + 4, y + 4);
+      doc.text(`Total Freight: ${inr(reportTotals.freight)}`, left + 4, y + 4.2);
+
       doc.setTextColor(5, 150, 105);
-      doc.text(`Adv Rec: ${inr(reportTotals.advanceReceived)}${reportTotals.advanceDriver > 0 ? ` (O: ${inr(reportTotals.advanceOwner || 0)}, D: ${inr(reportTotals.advanceDriver || 0)})` : ''}`, left + 50, y + 4);
-      doc.text(`Bal Rec: ${inr(reportTotals.balanceReceived)}`, left + 104, y + 4);
-      doc.text(`Total Rec: ${inr(reportTotals.received)}`, left + 142, y + 4);
+      doc.text(`Adv Rec: ${inr(reportTotals.advanceReceived)}`, left + 55, y + 4.2);
+      doc.text(`Bal Rec: ${inr(reportTotals.balanceReceived)}`, left + 102, y + 4.2);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Total Collected: ${inr(reportTotals.received)}`, pageWidth - left - 4, y + 4.2, { align: 'right' });
+
+      // Line 2: Pending status & Driver Advance note
+      doc.setFont('helvetica', 'bold');
       doc.setTextColor(reportTotals.pending > 0 ? 180 : 5, reportTotals.pending > 0 ? 83 : 150, reportTotals.pending > 0 ? 9 : 105);
-      doc.text(`PENDING TO RECEIVE FROM TRANSPORTER: ${inr(reportTotals.pending)}`, left + 4, y + 8);
-      y += 14;
+      doc.text(`PENDING TO RECEIVE: ${inr(reportTotals.pending)}`, left + 4, y + 8.8);
+
+      if (reportTotals.advanceDriver > 0) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`(Freight Adv Split -> Owner: ${inr(reportTotals.advanceOwner || 0)} | Driver: ${inr(reportTotals.advanceDriver || 0)} auto-credited)`, left + 70, y + 8.8);
+      }
+      y += 15;
 
       // 2. Trip Overall Expenses & Net Profit
       checkPageBreak(45);
@@ -1397,11 +1422,11 @@ function App() {
         doc.setFont('helvetica', isHighlight ? 'bold' : 'normal');
         doc.setFontSize(isHighlight ? 7.8 : 7);
         doc.setTextColor(isHighlight ? 15 : 71, isHighlight ? 23 : 85, isHighlight ? 42 : 105);
-        doc.text(label, left + 2, y);
+        doc.text(doc.splitTextToSize(label, 68)[0] || '', left + 2, y);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(desc, left + 76, y);
+        doc.text(doc.splitTextToSize(desc, 76)[0] || '', left + 72, y);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(isHighlight ? 8 : 7.2);
         if (label === 'NET PROFIT') {
@@ -1476,11 +1501,11 @@ function App() {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(6.8);
           doc.setTextColor(51, 65, 85);
-          doc.text(category, left + 2, y);
-          doc.text(doc.splitTextToSize(detail, dWidths[1] - 2)[0] || '', left + dWidths[0] + 2, y);
-          doc.text(date, left + dWidths[0] + dWidths[1] + 2, y);
-          doc.text(litres, left + dWidths[0] + dWidths[1] + dWidths[2] + 2, y);
-          doc.text(kmRate, left + dWidths[0] + dWidths[1] + dWidths[2] + dWidths[3] + 2, y);
+          doc.text(doc.splitTextToSize(category, dWidths[0] - 2)[0] || '', left + 2, y);
+          doc.text(doc.splitTextToSize(detail, dWidths[1] - 3)[0] || '', left + dWidths[0] + 2, y);
+          doc.text(doc.splitTextToSize(date, dWidths[2] - 2)[0] || '', left + dWidths[0] + dWidths[1] + 2, y);
+          doc.text(doc.splitTextToSize(litres, dWidths[3] - 2)[0] || '', left + dWidths[0] + dWidths[1] + dWidths[2] + 2, y);
+          doc.text(doc.splitTextToSize(kmRate, dWidths[4] - 3)[0] || '', left + dWidths[0] + dWidths[1] + dWidths[2] + dWidths[3] + 2, y);
           doc.setFont('helvetica', 'bold');
           doc.text(inr(amt), pageWidth - left - 2, y, { align: 'right' });
           y += 4.5;
@@ -1528,10 +1553,10 @@ function App() {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
         doc.setTextColor(71, 85, 105);
-        doc.text(lbl, left + 2, y);
+        doc.text(doc.splitTextToSize(lbl, 65)[0] || '', left + 2, y);
         doc.setFontSize(6.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(doc.splitTextToSize(sub, 90)[0] || '', left + 76, y);
+        doc.text(doc.splitTextToSize(sub, 70)[0] || '', left + 70, y);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7.2);
         doc.setTextColor(15, 23, 42);
