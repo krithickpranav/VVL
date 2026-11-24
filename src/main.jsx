@@ -757,11 +757,6 @@ function PinLockScreen({ correctPin, onUnlock, transporter, toast }) {
           >
             Unlock Workspace →
           </button>
-
-          <div className="pin-default-hint">
-            <span>🔑 Default Security PIN: <strong>2026</strong></span>
-            <small>Can be changed anytime in Settings</small>
-          </div>
         </div>
       </div>
       {toast && <div className="toast">{toast}</div>}
@@ -2913,7 +2908,7 @@ function Settings({ settings, setSettings, trips, setToast, lockApp }) {
             <p>Your workspace is locked with a security PIN. Anyone opening this portal must enter the correct PIN to view, create, or modify trip records.</p>
           </div>
           <form className="pin-change-form" onSubmit={handlePinChange}>
-            <Field label="Current PIN" type="password" maxLength="6" value={currentPin} onChange={setCurrentPin} placeholder="Enter current PIN (e.g. 2026)" required />
+            <Field label="Current PIN" type="password" maxLength="6" value={currentPin} onChange={setCurrentPin} placeholder="Enter current PIN" required />
             <Field label="New Security PIN (4-6 digits)" type="password" maxLength="6" value={newPin} onChange={setNewPin} placeholder="Enter new 4-6 digit PIN" required />
             <Field label="Confirm New PIN" type="password" maxLength="6" value={confirmPin} onChange={setConfirmPin} placeholder="Re-enter new PIN" required />
             {pinError && <div className="notice notice-error" style={{ gridColumn: '1 / -1' }}>{pinError}</div>}
