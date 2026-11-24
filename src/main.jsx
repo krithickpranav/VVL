@@ -418,6 +418,7 @@ function calculate(trip) {
   // Diesel
   const dieselOwner = (trip.diesel || []).reduce((sum, item) => {
     if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
+    if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum;
     if (item.paidBy === 'driver') return sum;
     return sum + number(item.amount);
   }, 0);
@@ -492,12 +493,14 @@ function calculate(trip) {
 
   const driverBalancePaid = (expenses.driverBalancePayments || []).reduce((sum, item) => sum + number(item.amount), 0);
   const driverBata = freight * number(expenses.driverBataPct) / 100;
-
-  // Owner-paid portions are operating expenses; driver-paid portions reduce driver advance
-  const operatingExpenses = dieselOwner + otherOwner + tollsOwner + policeOwner + loadingOwner + vehicleOwner + driverBata;
   const commission = freight * number(expenses.commissionPct) / 100;
+  // Driver earnings for the trip (either commission or trip bata)
+  const driverCost = number(expenses.commissionPct) > 0 ? commission : (driverBata || commission || 0);
+
+  // Owner-paid portions + driver earnings are operating expenses
+  const operatingExpenses = dieselOwner + otherOwner + tollsOwner + policeOwner + loadingOwner + vehicleOwner + driverCost;
   const netProfit = freight - operatingExpenses;
-  const finalPayable = (commission || 0) - driverAdvance - driverBalancePaid;
+  const finalPayable = driverCost - driverAdvance - driverBalancePaid;
 
   return {
     freightAmount,
@@ -534,9 +537,11 @@ function calculate(trip) {
     driverBalancePaid,
     driverBata,
     driverBataPct: number(expenses.driverBataPct),
+    commission,
+    commissionPct: number(expenses.commissionPct),
+    driverCost,
     operatingExpenses,
     netProfit,
-    commission,
     finalPayable,
   };
 }
@@ -1326,7 +1331,8 @@ function App() {
       doc.text('2. Trip Overall Expenses & Net Profit', left, y);
       y += 4.5;
 
-      const totalTripExpenses = reportTotals.dieselTotal + reportTotals.tolls + reportTotals.loadingUnloadingTotal + reportTotals.policeRto + reportTotals.vehicleExpenses + reportTotals.otherExpenses + (reportTotals.driverBata || 0);
+      const driverCost = reportTotals.driverCost !== undefined ? reportTotals.driverCost : (reportTotals.commission || reportTotals.driverBata || 0);
+      const totalTripExpenses = reportTotals.dieselTotal + reportTotals.tolls + reportTotals.loadingUnloadingTotal + reportTotals.policeRto + reportTotals.vehicleExpenses + reportTotals.otherExpenses + driverCost;
       const overallNetProfit = reportTotals.freight - totalTripExpenses;
 
       const tollCount = (savedTrip.expenses?.tolls || []).length;
@@ -1342,8 +1348,12 @@ function App() {
         ['Police case & RTO expense', `${policeCount} checkpoint, fine, permit & case entries`, reportTotals.policeRto],
         ['Bill expenses (repairs & maintenance)', `${billCount} bill entries (Tyre puncture, AdBlue oil, grease & repairs)`, reportTotals.vehicleExpenses],
         ['Other expenses', `${otherCount} other entries (Food, daily expenses & misc.)`, reportTotals.otherExpenses],
-        ...(reportTotals.driverBata > 0 ? [[`Driver bata allowance (${reportTotals.driverBataPct}%)`, 'Driver trip bata allowance on freight', reportTotals.driverBata]] : []),
-        ['TOTAL TRIP EXPENSES', 'Total expenses incurred for this trip (Diesel + Tolls + Bills + Misc)', totalTripExpenses],
+        ...(reportTotals.commission > 0
+          ? [[`Driver commission (${reportTotals.commissionPct}%)`, 'Driver trip commission on freight', reportTotals.commission]]
+          : reportTotals.driverBata > 0
+            ? [[`Driver bata allowance (${reportTotals.driverBataPct}%)`, 'Driver trip bata allowance on freight', reportTotals.driverBata]]
+            : []),
+        ['TOTAL TRIP EXPENSES', 'Total expenses incurred for this trip (Diesel + Tolls + Bills + Misc + Driver)', totalTripExpenses],
         ['NET PROFIT', 'Total Freight Collection minus Total Trip Expenses', overallNetProfit],
         ['PENDING FREIGHT TO RECEIVE', 'Balance freight still due from transporters', reportTotals.pending],
       ];
@@ -1466,9 +1476,9 @@ function App() {
 
       const setRows = [
         ['Driver Advance Given (Gross)', advDesc, inr(reportTotals.grossDriverAdvance)],
-        ['Less: Expenses paid by driver', 'Subtracted from advance', `- ${inr(reportTotals.totalDriverExpenses)}`],
+        ['Less: Total driver-operated expenses', 'Subtracted from advance (expenses incurred by driver)', `- ${inr(reportTotals.totalDriverExpenses)}`],
         ['Net Advance with Driver', 'Advance remaining in driver hand', inr(reportTotals.driverAdvance)],
-        ['Driver Bata / Commission Earned', reportTotals.driverBataPct > 0 ? `${reportTotals.driverBataPct}% of freight` : 'Commission', `+ ${inr(reportTotals.driverBata || reportTotals.commission)}`],
+        ['Driver Commission / Bata Earned', reportTotals.commission > 0 ? `${reportTotals.commissionPct}% of freight` : (reportTotals.driverBataPct > 0 ? `${reportTotals.driverBataPct}% of freight` : 'Commission'), `+ ${inr(driverCost)}`],
         ...(reportTotals.driverBalancePaid > 0 ? [['Driver Balance Paid during trip', 'Paid towards settlement', `- ${inr(reportTotals.driverBalancePaid)}`]] : []),
       ];
 
@@ -2116,6 +2126,10 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
           <span>Net advance (advance less all driver-paid expenses)</span>
           <strong>{amount(totals.driverAdvance)}</strong>
         </div>
+        <div className="driver-advance-adjustment">
+          <span>Driver commission / bata earned</span>
+          <strong className="positive">+ {amount(totals.driverCost ?? (totals.commission || totals.driverBata))}</strong>
+        </div>
         <DriverPaymentEntries group="driverBalancePayments" title="Driver balance payments" rows={trip.expenses.driverBalancePayments}
           amountLabel="Balance paid (₹)" totalLabel="Total balance paid" emptyText="No balance payments recorded."
           updateRow={updateRow} addRow={addRow} removeRow={removeRow} />
@@ -2428,6 +2442,7 @@ function PoliceRtoEntries({ rows, updateRow, addRow, removeRow }) {
 }
 
 function Settlement({ trip, totals, updateExpense }) {
+  const driverCost = totals.driverCost !== undefined ? totals.driverCost : (totals.commission || totals.driverBata || 0);
   const lines = [
     ['Freight collection', totals.freight, 'positive'],
     ['Diesel expense (Paid by owner)', -totals.dieselOwner],
@@ -2442,7 +2457,11 @@ function Settlement({ trip, totals, updateExpense }) {
     ...(totals.policeDriver > 0 ? [['Police & RTO paid by driver (adjusted in advance)', -totals.policeDriver, 'neutral']] : []),
     ['Bill expenses (Paid by owner)', -totals.vehicleOwner],
     ...(totals.vehicleDriver > 0 ? [['Bill expenses paid by driver (adjusted in advance)', -totals.vehicleDriver, 'neutral']] : []),
-    ...(totals.driverBata > 0 ? [[`Driver bata (${totals.driverBataPct}%)`, -totals.driverBata]] : []),
+    ...(totals.commission > 0
+      ? [[`Driver commission (${totals.commissionPct}%)`, -totals.commission]]
+      : totals.driverBata > 0
+        ? [[`Driver bata (${totals.driverBataPct}%)`, -totals.driverBata]]
+        : []),
   ];
   return (
     <>
@@ -2485,9 +2504,12 @@ function Settlement({ trip, totals, updateExpense }) {
           {totals.vehicleDriver > 0 && (
             <div><span>Less: Bill expenses paid by driver</span><strong className="positive">- {amount(totals.vehicleDriver)}</strong></div>
           )}
-          <div><span>Net advance adjusted</span><strong>{amount(totals.driverAdvance)}</strong></div>
-          <div><span>Less: balance payments recorded</span><strong>{amount(totals.driverBalancePaid)}</strong></div>
-          <div className="payable-total"><span>Remaining driver balance</span><strong className={totals.finalPayable < 0 ? 'negative' : 'positive'}>{amount(Math.abs(totals.finalPayable))} <small>{totals.finalPayable < 0 ? 'Overpaid' : 'Payable'}</small></strong></div>
+          <div><span>Net advance in driver hand</span><strong>{amount(totals.driverAdvance)}</strong></div>
+          <div><span>Driver commission / bata earned</span><strong className="positive">+ {amount(driverCost)}</strong></div>
+          {totals.driverBalancePaid > 0 && (
+            <div><span>Less: balance payments recorded</span><strong>- {amount(totals.driverBalancePaid)}</strong></div>
+          )}
+          <div className="payable-total"><span>Remaining driver balance</span><strong className={totals.finalPayable < 0 ? 'negative' : 'positive'}>{amount(Math.abs(totals.finalPayable))} <small>{totals.finalPayable < 0 ? 'Advance with driver' : 'Payable to driver'}</small></strong></div>
         </div>
       </section>
     </>
