@@ -169,7 +169,7 @@ function freshTrip(existingTrips = [], dateStr = today) {
       tolls: [],
       vehicleExpenses: [],
       policeRtoExpenses: [],
-      driverAdvances: [],
+      driverAdvances: [{ id: makeId(), date: dateStr || today, amount: '', paymentMode: 'GPay' }],
       driverBalancePayments: [],
       driverBataPct: 0,
       commissionPct: 15,
@@ -233,6 +233,8 @@ function normalizeTrip(trip) {
       transporterNumber: row.transporterNumber || '',
       loadingCharge: row.loadingCharge ?? '',
       unloadingCharge: row.unloadingCharge ?? '',
+      receivedByOwner: row.receivedByOwner !== undefined ? row.receivedByOwner : (row.paymentMode === 'Cash to driver' ? '' : (row.received ?? row.advanceReceived ?? '')),
+      receivedByDriver: row.receivedByDriver !== undefined ? row.receivedByDriver : (row.paymentMode === 'Cash to driver' ? (row.received ?? row.advanceReceived ?? '') : ''),
       received: row.received ?? row.advanceReceived ?? '',
       advanceDate: row.advanceDate || row.date || trip.startDate || today,
       paymentMode: row.paymentMode || 'GPay',
@@ -325,12 +327,12 @@ function normalizeTrip(trip) {
       id: makeId(), date: date || trip.startDate || today, name, amount: value,
     }));
   const driverAdvances = Array.isArray(expenses.driverAdvances)
-    ? expenses.driverAdvances.map((row) => ({ ...row, id: row.id || makeId(), date: row.date || trip.startDate || today }))
+    ? expenses.driverAdvances.map((row) => ({ ...row, id: row.id || makeId(), date: row.date || trip.startDate || today, paymentMode: row.paymentMode || 'GPay' }))
     : number(expenses.driverAdvance) ? [{
-      id: makeId(), date: trip.startDate || today, amount: expenses.driverAdvance,
+      id: makeId(), date: trip.startDate || today, amount: expenses.driverAdvance, paymentMode: 'GPay',
     }] : [];
   const driverBalancePayments = Array.isArray(expenses.driverBalancePayments)
-    ? expenses.driverBalancePayments.map((row) => ({ ...row, id: row.id || makeId(), date: row.date || trip.startDate || today }))
+    ? expenses.driverBalancePayments.map((row) => ({ ...row, id: row.id || makeId(), date: row.date || trip.startDate || today, paymentMode: row.paymentMode || 'Account transfer' }))
     : [];
 
   return {
@@ -407,8 +409,22 @@ function calculate(trip) {
   const legacyLoading = (trip.freights || []).reduce((sum, item) => sum + number(item.loadingCharge) + number(item.unloadingCharge), 0);
   const freight = freightAmount + (expenses.loadingUnloadingExpenses?.length ? 0 : legacyLoading);
 
-  // Advance received
-  const advanceReceived = (trip.freights || []).reduce((sum, item) => sum + number(item.received), 0);
+  // Advance received: split between received by owner vs received by driver
+  const advanceOwner = (trip.freights || []).reduce((sum, item) => {
+    if (item.receivedByOwner !== undefined && item.receivedByOwner !== '') return sum + number(item.receivedByOwner);
+    if (item.receivedByDriver !== undefined && item.receivedByDriver !== '') return sum;
+    if (item.paymentMode === 'Cash to driver') return sum;
+    return sum + number(item.received);
+  }, 0);
+
+  const advanceDriver = (trip.freights || []).reduce((sum, item) => {
+    if (item.receivedByDriver !== undefined && item.receivedByDriver !== '') return sum + number(item.receivedByDriver);
+    if (item.receivedByOwner !== undefined && item.receivedByOwner !== '') return sum;
+    if (item.paymentMode === 'Cash to driver') return sum + number(item.received);
+    return sum;
+  }, 0);
+
+  const advanceReceived = advanceOwner + advanceDriver;
   // Balance payments received (multiple installments per LR)
   const balanceReceived = (trip.freights || []).reduce((sum, item) =>
     sum + (item.balancePayments || []).reduce((bSum, b) => bSum + number(b.amount), 0), 0);
@@ -486,7 +502,9 @@ function calculate(trip) {
   const vehicleExpenses = vehicleOwner + vehicleDriver;
 
   // Driver calculations
-  const grossDriverAdvance = (expenses.driverAdvances || []).reduce((sum, item) => sum + number(item.amount), 0);
+  const directDriverAdvances = (expenses.driverAdvances || []).reduce((sum, item) => sum + number(item.amount), 0);
+  // Freight advance received directly by driver from transporter automatically adds to the driver advance account
+  const grossDriverAdvance = directDriverAdvances + advanceDriver;
   // All driver-paid expenses are subtracted from driver advance
   const totalDriverExpenses = dieselDriver + tollsDriver + policeDriver + loadingDriver + otherDriver + vehicleDriver;
   const driverAdvance = grossDriverAdvance - totalDriverExpenses;
@@ -506,6 +524,8 @@ function calculate(trip) {
   return {
     freightAmount,
     freight,
+    advanceOwner,
+    advanceDriver,
     advanceReceived,
     balanceReceived,
     received,
@@ -532,6 +552,7 @@ function calculate(trip) {
     vehicleExpenses,
     vehicleOwner,
     vehicleDriver,
+    directDriverAdvances,
     grossDriverAdvance,
     totalDriverExpenses,
     driverAdvance,
@@ -977,6 +998,8 @@ function App() {
             transporterName: '',
             transporterNumber: '',
             amount: '',
+            receivedByOwner: '',
+            receivedByDriver: '',
             received: '',
             advanceDate: today,
             paymentMode: 'GPay',
@@ -991,9 +1014,9 @@ function App() {
           : group === 'otherExpenses'
             ? { date: today, name: '', paidByOwner: '', paidByDriver: '', amount: '' }
           : group === 'driverAdvances'
-            ? { date: today, amount: '' }
+            ? { date: today, amount: '', paymentMode: 'GPay' }
           : group === 'driverBalancePayments'
-            ? { date: today, amount: '' }
+            ? { date: today, amount: '', paymentMode: 'Account transfer' }
           : group === 'tolls'
             ? { date: today, toDate: '', location: '', paidBy: 'owner', paidByOwner: '', paidByDriver: '', amount: '' }
             : { date: today, location: '', paidByOwner: '', paidByDriver: '', amount: '' }),
@@ -1236,7 +1259,13 @@ function App() {
 
       (savedTrip.freights || []).forEach((item, index) => {
         const lrTotal = number(item.amount) + (savedTrip.expenses?.loadingUnloadingExpenses?.length ? 0 : (number(item.loadingCharge) + number(item.unloadingCharge)));
-        const advance = number(item.received);
+        const advOwner = item.receivedByOwner !== undefined && item.receivedByOwner !== ''
+          ? number(item.receivedByOwner)
+          : (item.receivedByDriver !== undefined && item.receivedByDriver !== '' ? 0 : (item.paymentMode === 'Cash to driver' ? 0 : number(item.received)));
+        const advDriver = item.receivedByDriver !== undefined && item.receivedByDriver !== ''
+          ? number(item.receivedByDriver)
+          : (item.receivedByOwner !== undefined && item.receivedByOwner !== '' ? 0 : (item.paymentMode === 'Cash to driver' ? number(item.received) : 0));
+        const advance = advOwner + advDriver;
         const balancePayments = Array.isArray(item.balancePayments) ? item.balancePayments : [];
         const balTotal = balancePayments.reduce((sum, b) => sum + number(b.amount), 0);
         const totalRec = advance + balTotal;
@@ -1269,7 +1298,8 @@ function App() {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(6.8);
           doc.setTextColor(71, 85, 105);
-          doc.text('- Advance Received', left + fWidths[0] + 4, y);
+          const advSplitText = advDriver > 0 ? ` (Owner: ${inr(advOwner)}, Driver: ${inr(advDriver)})` : '';
+          doc.text(`- Advance Received${advSplitText}`, left + fWidths[0] + 4, y);
           doc.text(item.advanceDate || savedTrip.startDate || '-', left + fWidths[0] + fWidths[1] + 2, y);
           doc.text(item.paymentMode || 'GPay', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
           doc.setTextColor(5, 150, 105);
@@ -1317,9 +1347,9 @@ function App() {
       doc.setTextColor(15, 23, 42);
       doc.text(`Total Freight: ${inr(reportTotals.freight)}`, left + 4, y + 4);
       doc.setTextColor(5, 150, 105);
-      doc.text(`Adv Rec: ${inr(reportTotals.advanceReceived)}`, left + 54, y + 4);
-      doc.text(`Bal Rec: ${inr(reportTotals.balanceReceived)}`, left + 96, y + 4);
-      doc.text(`Total Rec: ${inr(reportTotals.received)}`, left + 138, y + 4);
+      doc.text(`Adv Rec: ${inr(reportTotals.advanceReceived)}${reportTotals.advanceDriver > 0 ? ` (O: ${inr(reportTotals.advanceOwner || 0)}, D: ${inr(reportTotals.advanceDriver || 0)})` : ''}`, left + 50, y + 4);
+      doc.text(`Bal Rec: ${inr(reportTotals.balanceReceived)}`, left + 104, y + 4);
+      doc.text(`Total Rec: ${inr(reportTotals.received)}`, left + 142, y + 4);
       doc.setTextColor(reportTotals.pending > 0 ? 180 : 5, reportTotals.pending > 0 ? 83 : 150, reportTotals.pending > 0 ? 9 : 105);
       doc.text(`PENDING TO RECEIVE FROM TRANSPORTER: ${inr(reportTotals.pending)}`, left + 4, y + 8);
       y += 14;
@@ -1471,16 +1501,24 @@ function App() {
       y += 4;
 
       const advEntries = savedTrip.expenses?.driverAdvances || [];
-      const advDesc = advEntries.length
-        ? advEntries.map(a => `${a.date || '-'}: ${inr(a.amount)}`).join(' | ')
-        : 'No advances recorded';
+      const directDesc = advEntries.length
+        ? advEntries.map(a => `${a.date || '-'}: ${inr(a.amount)} (${a.paymentMode || 'GPay'})`).join(' | ')
+        : 'No direct advances';
+      const driverFreightAdv = reportTotals.advanceDriver > 0
+        ? `Freight adv collected by driver: ${inr(reportTotals.advanceDriver)}`
+        : '';
+      const combinedAdvDesc = [directDesc, driverFreightAdv].filter(Boolean).join(' + ');
+
+      const balPaidDesc = (savedTrip.expenses?.driverBalancePayments || []).length
+        ? (savedTrip.expenses?.driverBalancePayments || []).map(b => `${b.date || '-'}: ${inr(b.amount)} (${b.paymentMode || 'Account transfer'})`).join(' | ')
+        : 'Paid towards settlement';
 
       const setRows = [
-        ['Driver Advance Given (Gross)', advDesc, inr(reportTotals.grossDriverAdvance)],
+        ['Driver Advance Given (Gross)', combinedAdvDesc, inr(reportTotals.grossDriverAdvance)],
         ['Less: Total driver-operated expenses', 'Subtracted from advance (expenses incurred by driver)', `- ${inr(reportTotals.totalDriverExpenses)}`],
         ['Net Advance with Driver', 'Advance remaining in driver hand', inr(reportTotals.driverAdvance)],
         ['Driver Commission / Bata Earned', reportTotals.commission > 0 ? `${reportTotals.commissionPct}% of freight` : (reportTotals.driverBataPct > 0 ? `${reportTotals.driverBataPct}% of freight` : 'Commission'), `+ ${inr(driverCost)}`],
-        ...(reportTotals.driverBalancePaid > 0 ? [['Driver Balance Paid during trip', 'Paid towards settlement', `- ${inr(reportTotals.driverBalancePaid)}`]] : []),
+        ...(reportTotals.driverBalancePaid > 0 ? [['Driver Balance Paid during trip', balPaidDesc, `- ${inr(reportTotals.driverBalancePaid)}`]] : []),
       ];
 
       setRows.forEach(([lbl, sub, val]) => {
@@ -1872,7 +1910,13 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
         <div className="freight-entries-list">
           {trip.freights.map((row, index) => {
             const lrTotal = number(row.amount) + (trip.expenses?.loadingUnloadingExpenses?.length ? 0 : (number(row.loadingCharge) + number(row.unloadingCharge)));
-            const advance = number(row.received);
+            const advOwner = row.receivedByOwner !== undefined && row.receivedByOwner !== ''
+              ? number(row.receivedByOwner)
+              : (row.receivedByDriver !== undefined && row.receivedByDriver !== '' ? 0 : (row.paymentMode === 'Cash to driver' ? 0 : number(row.received)));
+            const advDriver = row.receivedByDriver !== undefined && row.receivedByDriver !== ''
+              ? number(row.receivedByDriver)
+              : (row.receivedByOwner !== undefined && row.receivedByOwner !== '' ? 0 : (row.paymentMode === 'Cash to driver' ? number(row.received) : 0));
+            const advance = advOwner + advDriver;
             const balancePayments = Array.isArray(row.balancePayments) ? row.balancePayments : [];
             const balReceived = balancePayments.reduce((sum, b) => sum + number(b.amount), 0);
             const totalRec = advance + balReceived;
@@ -1899,7 +1943,28 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
                   <Field label="Material" value={row.material} onChange={(value) => updateRow('freights', row.id, 'material', value)} placeholder="Goods description" />
                   <Field label="Weight (Tons)" type="number" min="0" step="0.1" value={row.weight} onChange={(value) => updateRow('freights', row.id, 'weight', value)} placeholder="0.0" />
                   <Field label="Freight amount (₹)" type="number" min="0" value={row.amount} onChange={(value) => updateRow('freights', row.id, 'amount', value)} placeholder="0" />
-                  <Field label="Advance received (₹)" type="number" min="0" value={row.received} onChange={(value) => updateRow('freights', row.id, 'received', value)} placeholder="0" />
+                  <Field
+                    label="Advance received by owner (₹)"
+                    type="number"
+                    min="0"
+                    value={row.receivedByOwner ?? (row.paymentMode !== 'Cash to driver' ? row.received : '')}
+                    onChange={(value) => {
+                      updateRow('freights', row.id, 'receivedByOwner', value);
+                      updateRow('freights', row.id, 'received', number(value) + number(row.receivedByDriver));
+                    }}
+                    placeholder="0"
+                  />
+                  <Field
+                    label="Advance received by driver (₹)"
+                    type="number"
+                    min="0"
+                    value={row.receivedByDriver ?? (row.paymentMode === 'Cash to driver' ? row.received : '')}
+                    onChange={(value) => {
+                      updateRow('freights', row.id, 'receivedByDriver', value);
+                      updateRow('freights', row.id, 'received', number(row.receivedByOwner) + number(value));
+                    }}
+                    placeholder="0"
+                  />
                   <Field label="Advance date" type="date" value={row.advanceDate || trip.startDate || today} onChange={(value) => updateRow('freights', row.id, 'advanceDate', value)} />
                   <label className="field">
                     <span>Advance payment mode</span>
@@ -1908,12 +1973,19 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
                       value={row.paymentMode || 'GPay'}
                       onChange={(e) => updateRow('freights', row.id, 'paymentMode', e.target.value)}
                     >
-                      <option value="GPay">GPay</option>
+                      <option value="GPay">GPay / UPI</option>
                       <option value="Account transfer">Account transfer</option>
                       <option value="Cash to owner">Cash to owner</option>
                       <option value="Cash to driver">Cash to driver</option>
+                      <option value="Cheque">Cheque</option>
                     </select>
                   </label>
+                  {advDriver > 0 && (
+                    <div className="lr-driver-adv-notice" style={{ gridColumn: '1 / -1', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '9px 13px', borderRadius: '7px', color: '#065f46', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '16px' }}>🚚</span>
+                      <span><strong>Driver Account Auto-Credit:</strong> ₹{advDriver.toLocaleString('en-IN')} received by driver directly from transporter is automatically added to the Driver's Advance Account.</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Multiple Balance Payments Section */}
@@ -1982,6 +2054,11 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
                   <div className="freight-footer-item">
                     <span>Advance ({row.paymentMode || 'GPay'}):</span>
                     <strong style={{ color: '#059669' }}>{amount(advance)}</strong>
+                    {(advOwner > 0 || advDriver > 0) && (
+                      <small style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
+                        Owner: {amount(advOwner)} | Driver: {amount(advDriver)}
+                      </small>
+                    )}
                   </div>
                   {balReceived > 0 && (
                     <div className="freight-footer-item">
@@ -2005,7 +2082,15 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
         </div>
         <div className="total-strip freight-summary-strip">
           <div><span>Freight billed: </span><strong>{amount(totals.freightAmount ?? totals.freight)}</strong></div>
-          <div><span>Advance received: </span><strong style={{ color: '#059669' }}>{amount(totals.advanceReceived ?? totals.received)}</strong></div>
+          <div>
+            <span>Advance received: </span>
+            <strong style={{ color: '#059669' }}>{amount(totals.advanceReceived ?? totals.received)}</strong>
+            {(totals.advanceOwner > 0 || totals.advanceDriver > 0) && (
+              <small style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
+                Owner: {amount(totals.advanceOwner || 0)} | Driver: {amount(totals.advanceDriver || 0)}
+              </small>
+            )}
+          </div>
           {number(totals.balanceReceived) > 0 && (
             <div><span>Balance received: </span><strong style={{ color: '#059669' }}>{amount(totals.balanceReceived)}</strong></div>
           )}
@@ -2084,9 +2169,19 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
       </section>
       <section className="panel">
         <SectionTitle icon="▤">Driver costs</SectionTitle>
-        <DriverPaymentEntries group="driverAdvances" title="Driver advance payments" rows={trip.expenses.driverAdvances}
-          amountLabel="Advance amount (₹)" totalLabel="Total advances recorded" emptyText="No driver advances recorded."
+        <DriverPaymentEntries group="driverAdvances" title="Driver advance payments (Paid by owner)" rows={trip.expenses.driverAdvances}
+          amountLabel="Advance amount (₹)" totalLabel="Total direct advances by owner" emptyText="No driver advances recorded."
           updateRow={updateRow} addRow={addRow} removeRow={removeRow} />
+        {totals.advanceDriver > 0 && (
+          <div className="driver-advance-adjustment" style={{ background: '#ecfdf5', borderColor: '#a7f3d0' }}>
+            <span>Add: Freight advance received directly by driver from transporter</span>
+            <strong className="positive">+ {amount(totals.advanceDriver)}</strong>
+          </div>
+        )}
+        <div className="driver-advance-adjustment" style={{ background: '#f8fafc', fontWeight: 600 }}>
+          <span>Gross driver advance (Total cash with driver before expenses)</span>
+          <strong>{amount(totals.grossDriverAdvance)}</strong>
+        </div>
         {totals.dieselDriver > 0 && (
           <div className="driver-advance-adjustment">
             <span>Less: Diesel paid by driver (subtracted from advance)</span>
@@ -2311,6 +2406,19 @@ function DriverPaymentEntries({ group, title, rows, amountLabel, totalLabel, emp
         <div className="driver-advance-row" key={row.id}>
           <Field label="Date" type="date" value={row.date} onChange={(value) => updateRow(group, row.id, 'date', value)} />
           <Field label={amountLabel} type="number" min="0" value={row.amount} onChange={(value) => updateRow(group, row.id, 'amount', value)} />
+          <label className="field">
+            <span>Payment mode</span>
+            <select
+              className="field-select"
+              value={row.paymentMode || 'GPay'}
+              onChange={(e) => updateRow(group, row.id, 'paymentMode', e.target.value)}
+            >
+              <option value="GPay">GPay / UPI</option>
+              <option value="Account transfer">Account transfer</option>
+              <option value="Cash">Cash</option>
+              <option value="Cheque">Cheque</option>
+            </select>
+          </label>
           <button className="icon-button row-delete" type="button" onClick={() => removeRow(group, row.id)}
             aria-label={`Remove ${title.toLowerCase()} ${index + 1}`}>×</button>
         </div>
@@ -2480,7 +2588,11 @@ function Settlement({ trip, totals, updateExpense }) {
           <div className="calculated-field"><span>Calculated commission</span><strong>{amount(totals.commission)}</strong></div>
         </div>
         <div className="payable-row">
-          <div><span>Driver advance paid (Gross)</span><strong>{amount(totals.grossDriverAdvance)}</strong></div>
+          <div><span>Driver advance paid by owner</span><strong>{amount(totals.directDriverAdvances)}</strong></div>
+          {totals.advanceDriver > 0 && (
+            <div><span>Freight advance collected by driver</span><strong className="positive">+ {amount(totals.advanceDriver)}</strong></div>
+          )}
+          <div style={{ fontWeight: 600 }}><span>Gross driver advance</span><strong>{amount(totals.grossDriverAdvance)}</strong></div>
           {totals.dieselDriver > 0 && (
             <div><span>Less: Diesel paid by driver</span><strong className="positive">- {amount(totals.dieselDriver)}</strong></div>
           )}

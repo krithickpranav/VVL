@@ -1172,7 +1172,7 @@ h1, h2, p {
 /* Driver Advances */
 .driver-advance-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(160px, 1fr) 28px;
+  grid-template-columns: minmax(130px, 1fr) minmax(140px, 1.2fr) minmax(150px, 1.2fr) 30px;
   gap: 12px;
   align-items: end;
   margin-top: 8px;
@@ -2783,6 +2783,11 @@ h1, h2, p {
     grid-template-columns: 1fr 1fr;
     position: relative;
     padding-right: 38px;
+    gap: 10px;
+  }
+
+  .driver-advance-row .field:nth-child(3) {
+    grid-column: 1 / -1;
   }
 
   .driver-advance-row .row-delete {
@@ -2876,6 +2881,16 @@ h1, h2, p {
 
   .repeatable-row {
     grid-template-columns: 1fr;
+  }
+
+  .driver-advance-row {
+    grid-template-columns: 1fr;
+    padding-top: 36px;
+    padding-right: 12px;
+  }
+
+  .driver-advance-row .field:nth-child(3) {
+    grid-column: auto;
   }
 }
 
@@ -3001,6 +3016,19 @@ h1, h2, p {
   }
   .loading-expense-row {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .dates-places-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .date-place-card-fields {
+    grid-template-columns: 1fr;
+  }
+  .dates-total-card {
+    padding: 10px 12px;
   }
 }
 
