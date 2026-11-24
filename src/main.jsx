@@ -497,8 +497,9 @@ function calculate(trip) {
   // Driver earnings for the trip (either commission or trip bata)
   const driverCost = number(expenses.commissionPct) > 0 ? commission : (driverBata || commission || 0);
 
-  // Owner-paid portions + driver earnings are operating expenses
-  const operatingExpenses = dieselOwner + otherOwner + tollsOwner + policeOwner + loadingOwner + vehicleOwner + driverCost;
+  // Total trip operating expenses (Owner + Driver combined + Driver earnings)
+  const totalTripExpenses = dieselTotal + tolls + loadingUnloadingTotal + policeRto + vehicleExpenses + otherExpenses + driverCost;
+  const operatingExpenses = totalTripExpenses;
   const netProfit = freight - operatingExpenses;
   const finalPayable = driverCost - driverAdvance - driverBalancePaid;
 
@@ -2445,24 +2446,18 @@ function Settlement({ trip, totals, updateExpense }) {
   const driverCost = totals.driverCost !== undefined ? totals.driverCost : (totals.commission || totals.driverBata || 0);
   const lines = [
     ['Freight collection', totals.freight, 'positive'],
-    ['Diesel expense (Paid by owner)', -totals.dieselOwner],
-    ...(totals.dieselDriver > 0 ? [['Diesel paid by driver (adjusted in advance)', -totals.dieselDriver, 'neutral']] : []),
-    ['Loading & unloading (Paid by owner)', -totals.loadingOwner],
-    ...(totals.loadingDriver > 0 ? [['Loading & unloading paid by driver (adjusted in advance)', -totals.loadingDriver, 'neutral']] : []),
-    ['Other expenses (Paid by owner)', -totals.otherOwner],
-    ...(totals.otherDriver > 0 ? [['Other expenses paid by driver (adjusted in advance)', -totals.otherDriver, 'neutral']] : []),
-    ['Toll expense (Paid by owner)', -totals.tollsOwner],
-    ...(totals.tollsDriver > 0 ? [['Tolls paid by driver (adjusted in advance)', -totals.tollsDriver, 'neutral']] : []),
-    ['Police & RTO expenses (Paid by owner)', -totals.policeOwner],
-    ...(totals.policeDriver > 0 ? [['Police & RTO paid by driver (adjusted in advance)', -totals.policeDriver, 'neutral']] : []),
-    ['Bill expenses (Paid by owner)', -totals.vehicleOwner],
-    ...(totals.vehicleDriver > 0 ? [['Bill expenses paid by driver (adjusted in advance)', -totals.vehicleDriver, 'neutral']] : []),
+    ['Diesel expense (Total fuel consumed)', -totals.dieselTotal],
+    ['Loading & unloading charges', -totals.loadingUnloadingTotal],
+    ['Toll expenses (FASTag)', -totals.tolls],
+    ['Police & RTO expenses', -totals.policeRto],
+    ['Bill & repair expenses', -totals.vehicleExpenses],
+    ['Other trip expenses', -totals.otherExpenses],
     ...(totals.commission > 0
       ? [[`Driver commission (${totals.commissionPct}%)`, -totals.commission]]
       : totals.driverBata > 0
         ? [[`Driver bata (${totals.driverBataPct}%)`, -totals.driverBata]]
         : []),
-  ];
+  ].filter(([label, value]) => label === 'Freight collection' || value !== 0);
   return (
     <>
       <section className="panel">
