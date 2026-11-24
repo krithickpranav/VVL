@@ -94,7 +94,9 @@ function freshTrip(existingTrips = [], dateStr = today) {
       truck: '',
       driver: 'Rajesh Kumar',
       startDate: dateStr || today,
+      startPlace: 'Salem',
       endDate: dateStr || today,
+      endPlace: 'Chennai',
       startKm: 45210,
       endKm: 46120,
       freights: [
@@ -107,8 +109,6 @@ function freshTrip(existingTrips = [], dateStr = today) {
           material: 'Steel Coils',
           weight: 15.5,
           amount: 32000,
-          loadingCharge: 500,
-          unloadingCharge: 500,
           received: 1000,
           advanceDate: dateStr || today,
           paymentMode: 'GPay',
@@ -123,8 +123,6 @@ function freshTrip(existingTrips = [], dateStr = today) {
           material: 'General Cargo',
           weight: 12,
           amount: 24000,
-          loadingCharge: 400,
-          unloadingCharge: 400,
           received: 800,
           advanceDate: dateStr || today,
           paymentMode: 'Cash to driver',
@@ -133,9 +131,12 @@ function freshTrip(existingTrips = [], dateStr = today) {
       ],
       diesel: [{ id: makeId(), station: 'HP Petrol Pump, Kurnool', date: dateStr || today, litres: 180, km: 45600, paidByOwner: 17100, paidByDriver: '', amount: 17100 }],
       expenses: {
+        loadingUnloadingExpenses: [
+          { id: makeId(), date: dateStr || today, type: 'Loading charge', place: 'Hyderabad Godown', paidByOwner: 900, paidByDriver: '', amount: 900 },
+          { id: makeId(), date: dateStr || today, type: 'Unloading charge', place: 'Bangalore Warehouse', paidByOwner: 900, paidByDriver: '', amount: 900 },
+        ],
         otherExpenses: [
           { id: makeId(), date: dateStr || today, name: 'Food & meals', paidByOwner: 1500, paidByDriver: '', amount: 1500 },
-          { id: makeId(), date: dateStr || today, name: 'Loading / coolie', paidByOwner: 800, paidByDriver: '', amount: 800 },
           { id: makeId(), date: dateStr || today, name: 'Misc. & phone', paidByOwner: 500, paidByDriver: '', amount: 500 },
           { id: makeId(), date: dateStr || today, name: 'Kurnool Checkpost', paidByOwner: 1200, paidByDriver: '', amount: 1200 },
         ],
@@ -155,12 +156,15 @@ function freshTrip(existingTrips = [], dateStr = today) {
     truck: '',
     driver: '',
     startDate: dateStr || today,
+    startPlace: '',
     endDate: dateStr || today,
+    endPlace: '',
     startKm: '',
     endKm: '',
     freights: [],
     diesel: [],
     expenses: {
+      loadingUnloadingExpenses: [],
       otherExpenses: [],
       tolls: [],
       vehicleExpenses: [],
@@ -240,7 +244,8 @@ function normalizeTrip(trip) {
           paymentMode: b.paymentMode || 'Account transfer',
         })),
     }));
-  const freightTotal = freights.reduce((sum, item) => sum + number(item.amount) + number(item.loadingCharge) + number(item.unloadingCharge), 0);
+  const hasLoadingExpenses = Array.isArray(expenses.loadingUnloadingExpenses) && expenses.loadingUnloadingExpenses.length > 0;
+  const freightTotal = freights.reduce((sum, item) => sum + number(item.amount) + (hasLoadingExpenses ? 0 : (number(item.loadingCharge) + number(item.unloadingCharge))), 0);
   const vehicleExpenses = Array.isArray(expenses.vehicleExpenses)
     ? expenses.vehicleExpenses.map((row) => {
       const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
@@ -286,6 +291,24 @@ function normalizeTrip(trip) {
     })) : (number(expenses.rto) ? [{
       id: makeId(), date: trip.startDate || today, name: 'RTO & police checkpoints', paidByOwner: expenses.rto, paidByDriver: '', amount: expenses.rto,
     }] : []));
+  const loadingUnloadingExpenses = Array.isArray(expenses.loadingUnloadingExpenses)
+    ? expenses.loadingUnloadingExpenses.map((row) => {
+      const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
+      const hasDriver = row.paidByDriver !== undefined && row.paidByDriver !== '';
+      const paidByOwner = hasOwner ? row.paidByOwner : (hasDriver ? '' : (row.amount ?? ''));
+      const paidByDriver = hasDriver ? row.paidByDriver : '';
+      return {
+        ...row,
+        id: row.id || makeId(),
+        date: row.date || trip.startDate || today,
+        type: row.type || 'Loading charge',
+        place: row.place || '',
+        paidByOwner,
+        paidByDriver,
+        amount: (number(paidByOwner) + number(paidByDriver)) || row.amount || '',
+      };
+    })
+    : [];
   const otherExpenses = Array.isArray(expenses.otherExpenses)
     ? expenses.otherExpenses.map((row) => {
       const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
@@ -312,6 +335,8 @@ function normalizeTrip(trip) {
 
   return {
     ...trip,
+    startPlace: trip.startPlace || '',
+    endPlace: trip.endPlace || '',
     freights,
     diesel: (Array.isArray(trip.diesel) ? trip.diesel : []).map((row) => {
       const hasOwner = row.paidByOwner !== undefined && row.paidByOwner !== '';
@@ -345,6 +370,7 @@ function normalizeTrip(trip) {
       driverBataPct: expenses.driverBataPct !== undefined
         ? expenses.driverBataPct
         : freightTotal > 0 ? number(expenses.driverBata) / freightTotal * 100 : 0,
+      loadingUnloadingExpenses,
       vehicleExpenses,
       policeRtoExpenses,
       otherExpenses,
@@ -378,9 +404,8 @@ function normalizeTrip(trip) {
 function calculate(trip) {
   const expenses = trip.expenses || {};
   const freightAmount = (trip.freights || []).reduce((sum, item) => sum + number(item.amount), 0);
-  const loadingTotal = (trip.freights || []).reduce((sum, item) => sum + number(item.loadingCharge), 0);
-  const unloadingTotal = (trip.freights || []).reduce((sum, item) => sum + number(item.unloadingCharge), 0);
-  const freight = freightAmount + loadingTotal + unloadingTotal;
+  const legacyLoading = (trip.freights || []).reduce((sum, item) => sum + number(item.loadingCharge) + number(item.unloadingCharge), 0);
+  const freight = freightAmount + (expenses.loadingUnloadingExpenses?.length ? 0 : legacyLoading);
 
   // Advance received
   const advanceReceived = (trip.freights || []).reduce((sum, item) => sum + number(item.received), 0);
@@ -428,6 +453,16 @@ function calculate(trip) {
     (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
   const policeRto = policeOwner + policeDriver;
 
+  // Loading & Unloading Expenses
+  const loadingOwner = (expenses.loadingUnloadingExpenses || []).reduce((sum, item) => {
+    if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
+    if (item.paidByDriver !== undefined && item.paidByDriver !== '') return sum;
+    return sum + number(item.amount);
+  }, 0);
+  const loadingDriver = (expenses.loadingUnloadingExpenses || []).reduce((sum, item) =>
+    (item.paidByDriver !== undefined && item.paidByDriver !== '') ? sum + number(item.paidByDriver) : sum, 0);
+  const loadingUnloadingTotal = loadingOwner + loadingDriver;
+
   // Other Expenses
   const otherOwner = (expenses.otherExpenses || []).reduce((sum, item) => {
     if (item.paidByOwner !== undefined && item.paidByOwner !== '') return sum + number(item.paidByOwner);
@@ -452,22 +487,20 @@ function calculate(trip) {
   // Driver calculations
   const grossDriverAdvance = (expenses.driverAdvances || []).reduce((sum, item) => sum + number(item.amount), 0);
   // All driver-paid expenses are subtracted from driver advance
-  const totalDriverExpenses = dieselDriver + tollsDriver + policeDriver + otherDriver + vehicleDriver;
+  const totalDriverExpenses = dieselDriver + tollsDriver + policeDriver + loadingDriver + otherDriver + vehicleDriver;
   const driverAdvance = grossDriverAdvance - totalDriverExpenses;
 
   const driverBalancePaid = (expenses.driverBalancePayments || []).reduce((sum, item) => sum + number(item.amount), 0);
   const driverBata = freight * number(expenses.driverBataPct) / 100;
 
   // Owner-paid portions are operating expenses; driver-paid portions reduce driver advance
-  const operatingExpenses = dieselOwner + otherOwner + tollsOwner + policeOwner + vehicleOwner + driverBata;
+  const operatingExpenses = dieselOwner + otherOwner + tollsOwner + policeOwner + loadingOwner + vehicleOwner + driverBata;
   const commission = freight * number(expenses.commissionPct) / 100;
   const netProfit = freight - operatingExpenses;
-  const finalPayable = commission - driverAdvance - driverBalancePaid;
+  const finalPayable = (commission || 0) - driverAdvance - driverBalancePaid;
 
   return {
     freightAmount,
-    loadingTotal,
-    unloadingTotal,
     freight,
     advanceReceived,
     balanceReceived,
@@ -486,6 +519,9 @@ function calculate(trip) {
     policeRto,
     policeOwner,
     policeDriver,
+    loadingOwner,
+    loadingDriver,
+    loadingUnloadingTotal,
     otherExpenses,
     otherOwner,
     otherDriver,
@@ -935,13 +971,13 @@ function App() {
             transporterName: '',
             transporterNumber: '',
             amount: '',
-            loadingCharge: '',
-            unloadingCharge: '',
             received: '',
             advanceDate: today,
             paymentMode: 'GPay',
             balancePayments: [],
           }
+        : group === 'loadingUnloadingExpenses'
+          ? { date: today, type: 'Loading charge', place: '', paidByOwner: '', paidByDriver: '', amount: '' }
         : group === 'vehicleExpenses'
           ? { date: today, type: 'Tyre puncture', name: '', paidByOwner: '', paidByDriver: '', amount: '', litres: '', rate: '' }
           : group === 'policeRtoExpenses'
@@ -1069,350 +1105,420 @@ function App() {
     setPdfLoading(true);
     setToast('Generating PDF…');
     try {
-    const { jsPDF } = await import('jspdf');
-    const logoData = await loadLogoDataUrl();
-    const reportTotals = calculate(savedTrip);
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const left = 14;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const printableWidth = pageWidth - left * 2;
-    const inr = (value) => `INR ${number(value).toLocaleString('en-IN')}`;
+      const { jsPDF } = await import('jspdf');
+      const logoData = await loadLogoDataUrl();
+      const reportTotals = calculate(savedTrip);
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const left = 14;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const printableWidth = pageWidth - left * 2;
+      const inr = (value) => `INR ${number(value).toLocaleString('en-IN')}`;
 
-    const heading = (title = 'TRIP SHEET REPORT') => {
-      doc.addImage(logoData, 'JPEG', left, 8, 40, 20);
-      doc.setTextColor(20, 33, 54);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(settings.transporter || DEFAULT_SETTINGS.transporter, left + 45, 12);
-      doc.setFontSize(6.5);
-      doc.setTextColor(102, 115, 135);
-      doc.text(settings.tagline || DEFAULT_SETTINGS.tagline, left + 45, 16.5);
-      doc.text(`A Group of ${settings.groupName || DEFAULT_SETTINGS.groupName}`, left + 45, 20);
-      doc.text(`${settings.location || DEFAULT_SETTINGS.location} | ${settings.phone || DEFAULT_SETTINGS.phone}`, left + 45, 23.5);
-      doc.text(`Proprietor: ${settings.proprietor || DEFAULT_SETTINGS.proprietor}`, left + 45, 27);
-      doc.text(settings.qualifications || DEFAULT_SETTINGS.qualifications, left + 45, 30.5, { maxWidth: printableWidth - 45 });
-      doc.setFontSize(7.5);
-      doc.setTextColor(30, 64, 175);
-      doc.text(title, left + 45, 36);
-      doc.setFontSize(11);
-      doc.setTextColor(20, 33, 54);
-      doc.text(savedTrip.tripNumber || 'Trip Sheet', pageWidth - left, 36, { align: 'right' });
-      doc.setDrawColor(218, 225, 235);
-      doc.line(left, 39, pageWidth - left, 39);
-    };
+      const heading = () => {
+        doc.addImage(logoData, 'JPEG', left, 7, 36, 18);
+        doc.setTextColor(20, 33, 54);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10.5);
+        doc.text(settings.transporter || DEFAULT_SETTINGS.transporter, left + 40, 11);
+        doc.setFontSize(6.5);
+        doc.setTextColor(102, 115, 135);
+        doc.text(settings.tagline || DEFAULT_SETTINGS.tagline, left + 40, 15);
+        doc.text(`A Group of ${settings.groupName || DEFAULT_SETTINGS.groupName}`, left + 40, 18.5);
+        doc.text(`${settings.location || DEFAULT_SETTINGS.location} | Phone: ${settings.phone || DEFAULT_SETTINGS.phone}`, left + 40, 22);
+        doc.text(`Proprietor: ${settings.proprietor || DEFAULT_SETTINGS.proprietor}`, left + 40, 25.5);
+        doc.setFontSize(7.2);
+        doc.setTextColor(30, 64, 175);
+        doc.text('LORRY TRIP SHEET & SETTLEMENT STATEMENT', left + 40, 30);
+        doc.setFontSize(10.5);
+        doc.setTextColor(20, 33, 54);
+        doc.text(savedTrip.tripNumber || 'Trip Sheet', pageWidth - left, 30, { align: 'right' });
+        doc.setDrawColor(218, 225, 235);
+        doc.line(left, 33, pageWidth - left, 33);
+      };
 
-    heading('TRIP SHEET REPORT');
-    let y = 44;
+      heading();
+      let y = 37;
 
-    // 1. Trip Meta Cards (2x2)
-    const tripDays = calculateDays(savedTrip.startDate, savedTrip.endDate);
-    const meta = [
-      ['VEHICLE', savedTrip.truck || '—'],
-      ['DRIVER', savedTrip.driver || '—'],
-      ['TRIP DATES', `${savedTrip.startDate || '—'} to ${savedTrip.endDate || '—'}${tripDays > 0 ? ` (${tripDays} ${tripDays === 1 ? 'day' : 'days'})` : ''}`],
-      ['TOTAL DISTANCE', `${reportTotals.totalKm.toLocaleString('en-IN')} KM`],
-    ];
-    meta.forEach(([label, value], index) => {
-      const col = index % 2;
-      const row = Math.floor(index / 2);
-      const cardX = left + col * (printableWidth / 2);
-      const cardY = y + row * 12;
+      const checkPageBreak = (neededHeight) => {
+        if (y + neededHeight > 275) {
+          doc.addPage();
+          heading();
+          y = 39;
+        }
+      };
+
+      // 1. Executive Performance Cards (3 Cards across the page)
+      const tripDays = calculateDays(savedTrip.startDate, savedTrip.endDate);
+      const cardW = (printableWidth - 6) / 3;
+      const cardH = 17;
+
+      // Card 1: Vehicle & Driver
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(cardX, cardY, printableWidth / 2 - 3, 10, 1.5, 1.5, 'FD');
+      doc.roundedRect(left, y, cardW, cardH, 1.5, 1.5, 'FD');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.5);
+      doc.setFontSize(6.2);
       doc.setTextColor(100, 116, 139);
-      doc.text(label, cardX + 3, cardY + 3.8);
+      doc.text('VEHICLE & DRIVER', left + 3, y + 4);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
+      doc.setFontSize(8.2);
       doc.setTextColor(15, 23, 42);
-      doc.text(String(value), cardX + 3, cardY + 8);
-    });
-    y += 27;
-
-    // 2. Freight Details & Payment Receipts
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(20, 33, 54);
-    doc.text('1. Freight Details & Payment Receipts', left, y);
-    y += 4.5;
-
-    const fWidths = [12, 70, 30, 35, 35];
-    doc.setFillColor(241, 245, 249);
-    doc.rect(left, y, printableWidth, 6, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.8);
-    doc.setTextColor(51, 65, 85);
-    let fx = left + 2;
-    ['LR', 'PARTICULAR / TRANSPORTER', 'DATE', 'PAYMENT MODE', 'AMOUNT'].forEach((h, i) => {
-      doc.text(h, fx, y + 4.2);
-      fx += fWidths[i];
-    });
-    y += 8;
-
-    (savedTrip.freights || []).forEach((item, index) => {
-      const lrTotal = number(item.amount) + number(item.loadingCharge) + number(item.unloadingCharge);
-      const advance = number(item.received);
-      const balancePayments = Array.isArray(item.balancePayments) ? item.balancePayments : [];
-      const balTotal = balancePayments.reduce((sum, b) => sum + number(b.amount), 0);
-      const totalRec = advance + balTotal;
-      const pending = Math.max(0, lrTotal - totalRec);
-
-      if (y > 265) { doc.addPage(); heading(); y = 48; }
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text(String(index + 1), left + 2, y);
-      const titleText = `${item.transporterName ? `${item.transporterName} · ` : ''}${item.from || ''} → ${item.to || ''} (${item.material || 'Cargo'}, ${item.weight || 0}t)`;
-      doc.text(doc.splitTextToSize(titleText, fWidths[1] - 3)[0] || '', left + fWidths[0] + 2, y);
+      doc.text(savedTrip.truck || 'Vehicle not specified', left + 3, y + 8.8);
       doc.setFont('helvetica', 'normal');
-      doc.text(savedTrip.startDate || '—', left + fWidths[0] + fWidths[1] + 2, y);
-      doc.text('Freight Billed', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Driver: ${savedTrip.driver || 'Not assigned'}`, left + 3, y + 13.5);
+
+      // Card 2: Route & Timeline
+      const c2x = left + cardW + 3;
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(c2x, y, cardW, cardH, 1.5, 1.5, 'FD');
       doc.setFont('helvetica', 'bold');
-      doc.text(inr(lrTotal), pageWidth - left - 2, y, { align: 'right' });
-      doc.setDrawColor(241, 245, 249);
-      doc.line(left, y + 1.5, pageWidth - left, y + 1.5);
-      y += 5.5;
-
-      // Advance Received
-      if (advance > 0 || item.received !== '') {
-        if (y > 265) { doc.addPage(); heading(); y = 48; }
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
-        doc.setTextColor(71, 85, 105);
-        doc.text('└ Advance Received', left + fWidths[0] + 6, y);
-        doc.text(item.advanceDate || savedTrip.startDate || '—', left + fWidths[0] + fWidths[1] + 2, y);
-        doc.text(item.paymentMode || 'GPay', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
-        doc.setTextColor(5, 150, 105);
-        doc.text(inr(advance), pageWidth - left - 2, y, { align: 'right' });
-        y += 5;
-      }
-
-      // Balance Receipts
-      balancePayments.forEach((bal, bIdx) => {
-        if (y > 265) { doc.addPage(); heading(); y = 48; }
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
-        doc.setTextColor(71, 85, 105);
-        doc.text(`└ Balance Receipt #${bIdx + 1}`, left + fWidths[0] + 6, y);
-        doc.text(bal.date || '—', left + fWidths[0] + fWidths[1] + 2, y);
-        doc.text(bal.paymentMode || 'Account transfer', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
-        doc.setTextColor(5, 150, 105);
-        doc.text(inr(bal.amount), pageWidth - left - 2, y, { align: 'right' });
-        y += 5;
-      });
-
-      // Pending from transporter
-      if (pending > 0) {
-        if (y > 265) { doc.addPage(); heading(); y = 48; }
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(7);
-        doc.setTextColor(180, 83, 9);
-        doc.text('└ Remaining Pending', left + fWidths[0] + 6, y);
-        doc.text('Unsettled', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
-        doc.text(inr(pending), pageWidth - left - 2, y, { align: 'right' });
-        y += 5.5;
-      }
-      doc.setDrawColor(226, 232, 240);
-      doc.line(left, y - 1, pageWidth - left, y - 1);
-      y += 2.5;
-    });
-
-    // Freight Totals Bar
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.rect(left, y, printableWidth, 11, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text(`Total Freight: ${inr(reportTotals.freight)}`, left + 4, y + 4.2);
-    doc.setTextColor(5, 150, 105);
-    doc.text(`Adv: ${inr(reportTotals.advanceReceived)}`, left + 52, y + 4.2);
-    doc.text(`Bal Rec: ${inr(reportTotals.balanceReceived)}`, left + 90, y + 4.2);
-    doc.text(`Total Rec: ${inr(reportTotals.received)}`, left + 130, y + 4.2);
-    doc.setTextColor(reportTotals.pending > 0 ? 180 : 5, reportTotals.pending > 0 ? 83 : 150, reportTotals.pending > 0 ? 9 : 105);
-    doc.text(`PENDING TO RECEIVE FROM TRANSPORTER: ${inr(reportTotals.pending)}`, left + 4, y + 8.8);
-    y += 16;
-
-    // 3. Trip Operational Expenses & Net Profit
-    if (y > 225) { doc.addPage(); heading(); y = 48; }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(20, 33, 54);
-    doc.text('2. Trip Operational Expenses (Paid by Owner) & Net Profit', left, y);
-    y += 5;
-
-    const opsItems = [
-      ['Diesel expense (Paid by owner)', `${reportTotals.totalLitres} L | ${reportTotals.totalKm} KM | Mileage: ${reportTotals.mileage} KM/L`, reportTotals.dieselOwner],
-      ['FASTag toll expense (Paid by owner)', 'Recharge / statement payments', reportTotals.tollsOwner],
-      ['Police case & RTO expense (Paid by owner)', 'Checkpost, fines & permits', reportTotals.policeOwner],
-      ['Bill expenses (Paid by owner)', 'Tyre puncture, AdBlue & repairs', reportTotals.vehicleOwner],
-      ['Other expenses (Paid by owner)', 'Food, loading, coolie & misc.', reportTotals.otherOwner],
-      ...(reportTotals.driverBata > 0 ? [[`Driver bata (${reportTotals.driverBataPct}%)`, 'Driver trip bata allowance', reportTotals.driverBata]] : []),
-      ['TOTAL OPERATING EXPENSES', 'All operating expenses paid by owner', reportTotals.operatingExpenses],
-      ['NET PROFIT', 'Total Freight Collection minus Total Operating Expenses', reportTotals.netProfit],
-      ['PENDING AMOUNT TO RECEIVE', 'Freight balance still due from transporters', reportTotals.pending],
-    ];
-
-    opsItems.forEach(([label, desc, val]) => {
-      if (y > 268) { doc.addPage(); heading(); y = 48; }
-      const isHighlight = label === 'TOTAL OPERATING EXPENSES' || label === 'NET PROFIT' || label === 'PENDING AMOUNT TO RECEIVE';
-      doc.setDrawColor(isHighlight ? 203 : 241, isHighlight ? 213 : 245, isHighlight ? 225 : 249);
-      doc.line(left, y + 1.5, pageWidth - left, y + 1.5);
-      doc.setFont('helvetica', isHighlight ? 'bold' : 'normal');
-      doc.setFontSize(isHighlight ? 8 : 7.2);
-      doc.setTextColor(isHighlight ? 15 : 71, isHighlight ? 23 : 85, isHighlight ? 42 : 105);
-      doc.text(label, left + 2, y);
+      doc.setFontSize(6.2);
+      doc.setTextColor(100, 116, 139);
+      doc.text('ROUTE & TIMELINE', c2x + 3, y + 4);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(15, 23, 42);
+      const routeStr = `${savedTrip.startPlace || 'Origin'} -> ${savedTrip.endPlace || 'Destination'}`;
+      doc.text(doc.splitTextToSize(routeStr, cardW - 6)[0] || routeStr, c2x + 3, y + 8.8);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.8);
-      doc.setTextColor(148, 163, 184);
-      doc.text(desc, left + 75, y);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`${savedTrip.startDate || '-'} to ${savedTrip.endDate || '-'}${tripDays > 0 ? ` (${tripDays} ${tripDays === 1 ? 'day' : 'days'})` : ''}`, c2x + 3, y + 13.5);
+
+      // Card 3: Distance, Diesel & Efficiency
+      const c3x = left + (cardW * 2) + 6;
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(191, 219, 254);
+      doc.roundedRect(c3x, y, cardW, cardH, 1.5, 1.5, 'FD');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(isHighlight ? 8.5 : 7.5);
-      if (label === 'NET PROFIT') {
-        doc.setTextColor(val >= 0 ? 5 : 220, val >= 0 ? 150 : 38, val >= 0 ? 105 : 38);
-      } else if (label === 'PENDING AMOUNT TO RECEIVE') {
-        doc.setTextColor(val > 0 ? 180 : 5, val > 0 ? 83 : 150, val > 0 ? 9 : 105);
-      } else {
-        doc.setTextColor(15, 23, 42);
-      }
-      doc.text(inr(val), pageWidth - left - 2, y, { align: 'right' });
-      y += isHighlight ? 7 : 5.5;
-    });
-    y += 8;
+      doc.setFontSize(6.2);
+      doc.setTextColor(37, 99, 235);
+      doc.text('DISTANCE, FUEL & MILEAGE', c3x + 3, y + 4);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.2);
+      doc.setTextColor(30, 64, 175);
+      doc.text(`${reportTotals.totalKm.toLocaleString('en-IN')} KM | ${reportTotals.totalLitres || 0} L`, c3x + 3, y + 8.8);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.2);
+      doc.setTextColor(5, 150, 105);
+      doc.text(`Mileage: ${reportTotals.mileage > 0 ? `${reportTotals.mileage} KM/L` : 'N/A'}`, c3x + 3, y + 13.5);
 
-    // 4. Driver Operated Expenses & Settlement
-    if (y > 215) { doc.addPage(); heading(); y = 48; }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(20, 33, 54);
-    doc.text('3. Driver Operated Expenses & Settlement Account', left, y);
-    y += 5;
+      y += cardH + 5;
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(71, 85, 105);
-    doc.text('A. Expenses Paid by Driver (Incurred en route):', left + 2, y);
-    y += 4.5;
+      // 2. Freight Details & Payment Receipts
+      checkPageBreak(35);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(20, 33, 54);
+      doc.text('1. Freight Details & Payment Receipts', left, y);
+      y += 4;
 
-    const driverExpenseRows = [];
-    (savedTrip.diesel || []).filter(d => number(d.paidByDriver) > 0).forEach(d => {
-      const rate = number(d.litres) ? (number(d.amount) / number(d.litres)).toFixed(2) : '—';
-      driverExpenseRows.push(['Diesel', d.station || 'Fuel pump', d.date || '—', `${d.litres || 0} L`, `KM: ${d.km || '—'} (₹${rate}/L)`, number(d.paidByDriver)]);
-    });
-    (savedTrip.expenses?.tolls || []).filter(t => number(t.paidByDriver) > 0).forEach(t => {
-      driverExpenseRows.push(['FASTag Toll', t.location || 'Plaza toll', t.date || '—', '—', 'Driver paid', number(t.paidByDriver)]);
-    });
-    (savedTrip.expenses?.policeRtoExpenses || []).filter(p => number(p.paidByDriver) > 0).forEach(p => {
-      driverExpenseRows.push(['Police / RTO', p.name || 'Checkpoint/Fine', p.date || '—', '—', 'Driver paid', number(p.paidByDriver)]);
-    });
-    (savedTrip.expenses?.otherExpenses || []).filter(o => number(o.paidByDriver) > 0).forEach(o => {
-      driverExpenseRows.push(['Other Expense', o.name || 'Expense', o.date || '—', '—', 'Driver paid', number(o.paidByDriver)]);
-    });
-    (savedTrip.expenses?.vehicleExpenses || []).filter(v => number(v.paidByDriver) > 0).forEach(v => {
-      driverExpenseRows.push(['Bill Expense', v.name || v.type || 'Repair', v.date || '—', '—', 'Driver paid', number(v.paidByDriver)]);
-    });
-
-    if (driverExpenseRows.length === 0) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(7);
-      doc.setTextColor(148, 163, 184);
-      doc.text('No driver-operated expenses recorded for this trip.', left + 4, y);
-      y += 6;
-    } else {
-      const dWidths = [24, 52, 24, 20, 34, 28];
+      const fWidths = [10, 68, 28, 42, 34];
       doc.setFillColor(241, 245, 249);
       doc.rect(left, y, printableWidth, 5.5, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.5);
       doc.setTextColor(51, 65, 85);
-      let dx = left + 2;
-      ['EXPENSE', 'DETAILS', 'DATE', 'LITRES', 'KM / RATE', 'AMOUNT'].forEach((h, i) => {
-        doc.text(h, dx, y + 3.8);
-        dx += dWidths[i];
+      let fx = left + 2;
+      ['LR', 'TRANSPORTER / ROUTE / MATERIAL', 'DATE', 'PAYMENT MODE / TYPE', 'AMOUNT'].forEach((h, i) => {
+        doc.text(h, fx, y + 3.8);
+        fx += fWidths[i];
       });
-      y += 7;
+      y += 7.5;
 
-      driverExpenseRows.forEach(([category, detail, date, litres, kmRate, amt]) => {
-        if (y > 268) { doc.addPage(); heading(); y = 48; }
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.8);
-        doc.setTextColor(51, 65, 85);
-        doc.text(category, left + 2, y);
-        doc.text(doc.splitTextToSize(detail, dWidths[1] - 2)[0] || '', left + dWidths[0] + 2, y);
-        doc.text(date, left + dWidths[0] + dWidths[1] + 2, y);
-        doc.text(litres, left + dWidths[0] + dWidths[1] + dWidths[2] + 2, y);
-        doc.text(kmRate, left + dWidths[0] + dWidths[1] + dWidths[2] + dWidths[3] + 2, y);
+      (savedTrip.freights || []).forEach((item, index) => {
+        const lrTotal = number(item.amount) + (savedTrip.expenses?.loadingUnloadingExpenses?.length ? 0 : (number(item.loadingCharge) + number(item.unloadingCharge)));
+        const advance = number(item.received);
+        const balancePayments = Array.isArray(item.balancePayments) ? item.balancePayments : [];
+        const balTotal = balancePayments.reduce((sum, b) => sum + number(b.amount), 0);
+        const totalRec = advance + balTotal;
+        const pending = Math.max(0, lrTotal - totalRec);
+
+        checkPageBreak(20);
         doc.setFont('helvetica', 'bold');
-        doc.text(inr(amt), pageWidth - left - 2, y, { align: 'right' });
+        doc.setFontSize(7.2);
+        doc.setTextColor(15, 23, 42);
+        doc.text(String(index + 1), left + 2, y);
+
+        const tName = item.transporterName ? `${item.transporterName}` : 'Transporter';
+        const rName = `${item.from || ''} -> ${item.to || ''}`;
+        const mName = `(${item.material || 'Cargo'}, ${item.weight || 0}t)`;
+        const titleText = `${tName}: ${rName} ${mName}`;
+        doc.text(doc.splitTextToSize(titleText, fWidths[1] - 3)[0] || '', left + fWidths[0] + 2, y);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(savedTrip.startDate || '-', left + fWidths[0] + fWidths[1] + 2, y);
+        doc.text('Freight Billed', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+        doc.setFont('helvetica', 'bold');
+        doc.text(inr(lrTotal), pageWidth - left - 2, y, { align: 'right' });
+        doc.setDrawColor(241, 245, 249);
+        doc.line(left, y + 1.5, pageWidth - left, y + 1.5);
         y += 5;
+
+        // Advance Received
+        if (advance > 0 || item.received !== '') {
+          checkPageBreak(8);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(71, 85, 105);
+          doc.text('- Advance Received', left + fWidths[0] + 4, y);
+          doc.text(item.advanceDate || savedTrip.startDate || '-', left + fWidths[0] + fWidths[1] + 2, y);
+          doc.text(item.paymentMode || 'GPay', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+          doc.setTextColor(5, 150, 105);
+          doc.text(inr(advance), pageWidth - left - 2, y, { align: 'right' });
+          y += 4.5;
+        }
+
+        // Balance Receipts
+        balancePayments.forEach((bal, bIdx) => {
+          checkPageBreak(8);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(71, 85, 105);
+          doc.text(`- Balance Installment #${bIdx + 1}`, left + fWidths[0] + 4, y);
+          doc.text(bal.date || '-', left + fWidths[0] + fWidths[1] + 2, y);
+          doc.text(bal.paymentMode || 'Account transfer', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+          doc.setTextColor(5, 150, 105);
+          doc.text(inr(bal.amount), pageWidth - left - 2, y, { align: 'right' });
+          y += 4.5;
+        });
+
+        // Pending from transporter
+        if (pending > 0) {
+          checkPageBreak(8);
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(6.8);
+          doc.setTextColor(180, 83, 9);
+          doc.text('- Remaining Pending Balance', left + fWidths[0] + 4, y);
+          doc.text('Due from transporter', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+          doc.text(inr(pending), pageWidth - left - 2, y, { align: 'right' });
+          y += 4.5;
+        }
+        doc.setDrawColor(226, 232, 240);
+        doc.line(left, y - 0.5, pageWidth - left, y - 0.5);
+        y += 2;
       });
+
+      // Freight Totals Bar
+      checkPageBreak(12);
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(left, y, printableWidth, 10, 'FD');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.2);
       doc.setTextColor(15, 23, 42);
-      doc.text(`Total Driver-Operated Expenses: ${inr(reportTotals.totalDriverExpenses)}`, pageWidth - left - 2, y, { align: 'right' });
-      y += 7.5;
-    }
+      doc.text(`Total Freight: ${inr(reportTotals.freight)}`, left + 4, y + 4);
+      doc.setTextColor(5, 150, 105);
+      doc.text(`Adv Rec: ${inr(reportTotals.advanceReceived)}`, left + 54, y + 4);
+      doc.text(`Bal Rec: ${inr(reportTotals.balanceReceived)}`, left + 96, y + 4);
+      doc.text(`Total Rec: ${inr(reportTotals.received)}`, left + 138, y + 4);
+      doc.setTextColor(reportTotals.pending > 0 ? 180 : 5, reportTotals.pending > 0 ? 83 : 150, reportTotals.pending > 0 ? 9 : 105);
+      doc.text(`PENDING TO RECEIVE FROM TRANSPORTER: ${inr(reportTotals.pending)}`, left + 4, y + 8);
+      y += 14;
 
-    // Driver Settlement Summary
-    if (y > 230) { doc.addPage(); heading(); y = 48; }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(71, 85, 105);
-    doc.text('B. Driver Advance & Settlement Balance:', left + 2, y);
-    y += 4.5;
+      // 3. Trip Operational Expenses (Paid by Owner) & Net Profit
+      checkPageBreak(45);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(20, 33, 54);
+      doc.text('2. Trip Operational Expenses (Paid by Owner) & Net Profit', left, y);
+      y += 4.5;
 
-    const advList = (savedTrip.expenses?.driverAdvances || []).map(a => `${a.date}: ${inr(a.amount)}`).join(', ');
-    const setRows = [
-      ['Driver Advance Given', advList ? `Dates: ${advList}` : 'No advances recorded', inr(reportTotals.grossDriverAdvance)],
-      ['Less: Expenses paid by driver', 'Subtracted from advance', `- ${inr(reportTotals.totalDriverExpenses)}`],
-      ['Net Advance with Driver', 'Advance amount remaining in driver hand', inr(reportTotals.driverAdvance)],
-      ['Driver Bata / Commission Earned', reportTotals.driverBataPct > 0 ? `${reportTotals.driverBataPct}% of freight` : 'Commission', `+ ${inr(reportTotals.driverBata || reportTotals.commission)}`],
-      ...(reportTotals.driverBalancePaid > 0 ? [['Driver Balance Paid during trip', 'Paid towards settlement', `- ${inr(reportTotals.driverBalancePaid)}`]] : []),
-    ];
+      const opsItems = [
+        ['Diesel expense (Paid by owner)', `${reportTotals.totalLitres || 0} L consumed across ${reportTotals.totalKm} KM | Mileage: ${reportTotals.mileage > 0 ? `${reportTotals.mileage} KM/L` : 'N/A'}`, reportTotals.dieselOwner],
+        ['Loading & unloading charges (Paid by owner)', `${(savedTrip.expenses?.loadingUnloadingExpenses || []).length} entries (coolie / hamali)`, reportTotals.loadingOwner || 0],
+        ['FASTag toll expense (Paid by owner)', 'FASTag statement / online recharge', reportTotals.tollsOwner],
+        ['Police case & RTO expense (Paid by owner)', 'Checkpost, fines & permits', reportTotals.policeOwner],
+        ['Bill expenses (Paid by owner)', 'Tyre puncture, AdBlue & repairs', reportTotals.vehicleOwner],
+        ['Other expenses (Paid by owner)', 'Food, misc. & driver daily expense', reportTotals.otherOwner],
+        ...(reportTotals.driverBata > 0 ? [[`Driver bata (${reportTotals.driverBataPct}%)`, 'Driver trip bata allowance', reportTotals.driverBata]] : []),
+        ['TOTAL OPERATING EXPENSES', 'Total expenses paid directly by owner', reportTotals.operatingExpenses],
+        ['NET PROFIT', 'Total Freight Collection minus Total Operating Expenses', reportTotals.netProfit],
+        ['PENDING AMOUNT TO RECEIVE', 'Freight balance still due from transporters', reportTotals.pending],
+      ];
 
-    setRows.forEach(([lbl, sub, val]) => {
-      if (y > 268) { doc.addPage(); heading(); y = 48; }
-      doc.setDrawColor(241, 245, 249);
-      doc.line(left, y + 1.2, pageWidth - left, y + 1.2);
-      doc.setFont('helvetica', 'normal');
+      opsItems.forEach(([label, desc, val]) => {
+        checkPageBreak(8);
+        const isHighlight = label === 'TOTAL OPERATING EXPENSES' || label === 'NET PROFIT' || label === 'PENDING AMOUNT TO RECEIVE';
+        doc.setDrawColor(isHighlight ? 203 : 241, isHighlight ? 213 : 245, isHighlight ? 225 : 249);
+        doc.line(left, y + 1.2, pageWidth - left, y + 1.2);
+        doc.setFont('helvetica', isHighlight ? 'bold' : 'normal');
+        doc.setFontSize(isHighlight ? 7.8 : 7);
+        doc.setTextColor(isHighlight ? 15 : 71, isHighlight ? 23 : 85, isHighlight ? 42 : 105);
+        doc.text(label, left + 2, y);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(desc, left + 76, y);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(isHighlight ? 8 : 7.2);
+        if (label === 'NET PROFIT') {
+          doc.setTextColor(val >= 0 ? 5 : 220, val >= 0 ? 150 : 38, val >= 0 ? 105 : 38);
+        } else if (label === 'PENDING AMOUNT TO RECEIVE') {
+          doc.setTextColor(val > 0 ? 180 : 5, val > 0 ? 83 : 150, val > 0 ? 9 : 105);
+        } else {
+          doc.setTextColor(15, 23, 42);
+        }
+        doc.text(inr(val), pageWidth - left - 2, y, { align: 'right' });
+        y += isHighlight ? 6.5 : 5;
+      });
+      y += 6;
+
+      // 4. Driver Operated Expenses & Settlement Account
+      checkPageBreak(45);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(20, 33, 54);
+      doc.text('3. Driver Operated Expenses & Settlement Account', left, y);
+      y += 4.5;
+
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.2);
       doc.setTextColor(71, 85, 105);
-      doc.text(lbl, left + 2, y);
-      doc.setFontSize(6.8);
-      doc.setTextColor(148, 163, 184);
-      doc.text(sub, left + 75, y);
+      doc.text('A. Expenses Paid Directly by Driver En Route (Subtracted from Advance):', left + 2, y);
+      y += 4;
+
+      const driverExpenseRows = [];
+      (savedTrip.diesel || []).filter(d => number(d.paidByDriver) > 0).forEach(d => {
+        const rate = number(d.litres) ? (number(d.amount) / number(d.litres)).toFixed(2) : '-';
+        driverExpenseRows.push(['Diesel', d.station || 'Fuel pump', d.date || '-', `${d.litres || 0} L`, `KM: ${d.km || '-'} (INR ${rate}/L)`, number(d.paidByDriver)]);
+      });
+      (savedTrip.expenses?.loadingUnloadingExpenses || []).filter(l => number(l.paidByDriver) > 0).forEach(l => {
+        driverExpenseRows.push(['Loading/Unload', `${l.type || 'Loading'}: ${l.place || 'Godown'}`, l.date || '-', '-', 'Driver paid', number(l.paidByDriver)]);
+      });
+      (savedTrip.expenses?.tolls || []).filter(t => number(t.paidByDriver) > 0).forEach(t => {
+        driverExpenseRows.push(['FASTag Toll', t.location || 'Plaza toll', t.date || '-', '-', 'Driver paid', number(t.paidByDriver)]);
+      });
+      (savedTrip.expenses?.policeRtoExpenses || []).filter(p => number(p.paidByDriver) > 0).forEach(p => {
+        driverExpenseRows.push(['Police / RTO', p.name || 'Checkpoint/Fine', p.date || '-', '-', 'Driver paid', number(p.paidByDriver)]);
+      });
+      (savedTrip.expenses?.otherExpenses || []).filter(o => number(o.paidByDriver) > 0).forEach(o => {
+        driverExpenseRows.push(['Other Expense', o.name || 'Expense', o.date || '-', '-', 'Driver paid', number(o.paidByDriver)]);
+      });
+      (savedTrip.expenses?.vehicleExpenses || []).filter(v => number(v.paidByDriver) > 0).forEach(v => {
+        driverExpenseRows.push(['Bill Expense', v.name || v.type || 'Repair', v.date || '-', '-', 'Driver paid', number(v.paidByDriver)]);
+      });
+
+      if (driverExpenseRows.length === 0) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6.8);
+        doc.setTextColor(148, 163, 184);
+        doc.text('No driver-operated expenses recorded for this trip.', left + 4, y);
+        y += 5.5;
+      } else {
+        const dWidths = [24, 52, 22, 18, 38, 28];
+        doc.setFillColor(241, 245, 249);
+        doc.rect(left, y, printableWidth, 5, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(51, 65, 85);
+        let dx = left + 2;
+        ['EXPENSE', 'DETAILS / LOCATION', 'DATE', 'LITRES', 'KM / RATE', 'AMOUNT'].forEach((h, i) => {
+          doc.text(h, dx, y + 3.5);
+          dx += dWidths[i];
+        });
+        y += 6.5;
+
+        driverExpenseRows.forEach(([category, detail, date, litres, kmRate, amt]) => {
+          checkPageBreak(7);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(51, 65, 85);
+          doc.text(category, left + 2, y);
+          doc.text(doc.splitTextToSize(detail, dWidths[1] - 2)[0] || '', left + dWidths[0] + 2, y);
+          doc.text(date, left + dWidths[0] + dWidths[1] + 2, y);
+          doc.text(litres, left + dWidths[0] + dWidths[1] + dWidths[2] + 2, y);
+          doc.text(kmRate, left + dWidths[0] + dWidths[1] + dWidths[2] + dWidths[3] + 2, y);
+          doc.setFont('helvetica', 'bold');
+          doc.text(inr(amt), pageWidth - left - 2, y, { align: 'right' });
+          y += 4.5;
+        });
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`Total Driver-Operated Expenses: ${inr(reportTotals.totalDriverExpenses)}`, pageWidth - left - 2, y, { align: 'right' });
+        y += 7;
+      }
+
+      // Driver Advance & Settlement Ledger
+      checkPageBreak(40);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.2);
-      doc.setTextColor(15, 23, 42);
-      doc.text(val, pageWidth - left - 2, y, { align: 'right' });
-      y += 5;
-    });
+      doc.setTextColor(71, 85, 105);
+      doc.text('B. Driver Advance Ledger & Settlement Balance:', left + 2, y);
+      y += 4;
 
-    // Final Status Box
-    y += 2.5;
-    const isPayable = reportTotals.finalPayable > 0;
-    const isRecoverable = reportTotals.finalPayable < 0;
-    doc.setFillColor(isPayable ? 254 : 240, isPayable ? 242 : 253, isPayable ? 242 : 244);
-    doc.setDrawColor(isPayable ? 239 : 34, isPayable ? 68 : 197, isPayable ? 68 : 94);
-    doc.roundedRect(left, y, printableWidth, 10, 1.5, 1.5, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    if (isPayable) {
-      doc.setTextColor(185, 28, 28);
-      doc.text(`STILL AMOUNT TO PAY TO DRIVER: ${inr(reportTotals.finalPayable)}`, left + 4, y + 6.5);
-    } else if (isRecoverable) {
-      doc.setTextColor(21, 128, 61);
-      doc.text(`EXCESS ADVANCE WITH DRIVER (RECOVERABLE): ${inr(Math.abs(reportTotals.finalPayable))}`, left + 4, y + 6.5);
-    } else {
-      doc.setTextColor(5, 150, 105);
-      doc.text('DRIVER ACCOUNT FULLY SETTLED (NIL BALANCE)', left + 4, y + 6.5);
-    }
+      const advEntries = savedTrip.expenses?.driverAdvances || [];
+      const advDesc = advEntries.length
+        ? advEntries.map(a => `${a.date || '-'}: ${inr(a.amount)}`).join(' | ')
+        : 'No advances recorded';
 
-    const filename = `${settings.transporter || DEFAULT_SETTINGS.transporter} ${savedTrip.tripNumber || 'Trip Sheet'}`
-      .replace(/[<>:"/\\|?*]+/g, '-').trim();
-    doc.save(`${filename}.pdf`);
+      const setRows = [
+        ['Driver Advance Given (Gross)', advDesc, inr(reportTotals.grossDriverAdvance)],
+        ['Less: Expenses paid by driver', 'Subtracted from advance', `- ${inr(reportTotals.totalDriverExpenses)}`],
+        ['Net Advance with Driver', 'Advance remaining in driver hand', inr(reportTotals.driverAdvance)],
+        ['Driver Bata / Commission Earned', reportTotals.driverBataPct > 0 ? `${reportTotals.driverBataPct}% of freight` : 'Commission', `+ ${inr(reportTotals.driverBata || reportTotals.commission)}`],
+        ...(reportTotals.driverBalancePaid > 0 ? [['Driver Balance Paid during trip', 'Paid towards settlement', `- ${inr(reportTotals.driverBalancePaid)}`]] : []),
+      ];
+
+      setRows.forEach(([lbl, sub, val]) => {
+        checkPageBreak(7);
+        doc.setDrawColor(241, 245, 249);
+        doc.line(left, y + 1.2, pageWidth - left, y + 1.2);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(71, 85, 105);
+        doc.text(lbl, left + 2, y);
+        doc.setFontSize(6.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(doc.splitTextToSize(sub, 90)[0] || '', left + 76, y);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.2);
+        doc.setTextColor(15, 23, 42);
+        doc.text(val, pageWidth - left - 2, y, { align: 'right' });
+        y += 4.8;
+      });
+
+      // Final Status Box - High Contrast & Unmistakable
+      y += 2.5;
+      checkPageBreak(15);
+      const isPayable = reportTotals.finalPayable > 0;
+      const isRecoverable = reportTotals.finalPayable < 0;
+
+      doc.setFillColor(isPayable ? 254 : isRecoverable ? 240 : 241, isPayable ? 242 : isRecoverable ? 253 : 245, isPayable ? 242 : isRecoverable ? 244 : 249);
+      doc.setDrawColor(isPayable ? 220 : isRecoverable ? 34 : 100, isPayable ? 38 : isRecoverable ? 197 : 116, isPayable ? 38 : isRecoverable ? 94 : 139);
+      doc.roundedRect(left, y, printableWidth, 11, 1.5, 1.5, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+
+      if (isPayable) {
+        doc.setTextColor(185, 28, 28);
+        doc.text(`>>> STILL WANT TO PAY TO DRIVER: ${inr(reportTotals.finalPayable)} <<<`, left + 4, y + 5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(153, 27, 27);
+        doc.text('Driver has an outstanding payable balance of this amount for this trip.', left + 4, y + 8.8);
+      } else if (isRecoverable) {
+        doc.setTextColor(21, 128, 61);
+        doc.text(`>>> EXCESS ADVANCE WITH DRIVER (RECOVERABLE): ${inr(Math.abs(reportTotals.finalPayable))} <<<`, left + 4, y + 5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(22, 101, 52);
+        doc.text('Driver has excess advance remaining; adjust in next trip or recover.', left + 4, y + 8.8);
+      } else {
+        doc.setTextColor(5, 150, 105);
+        doc.text('>>> DRIVER ACCOUNT FULLY SETTLED (NIL BALANCE) <<<', left + 4, y + 5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text('All advances, expenses and bata match exactly with zero remaining balance.', left + 4, y + 8.8);
+      }
+
+      const filename = `${settings.transporter || DEFAULT_SETTINGS.transporter} ${savedTrip.tripNumber || 'Trip Sheet'}`
+        .replace(/[<>:"/\\|?*]+/g, '-').trim();
+      doc.save(`${filename}.pdf`);
     setToast(`PDF saved: ${filename}.pdf`);
     } catch (error) {
       console.error('Unable to generate the trip sheet PDF.', error);
@@ -1425,7 +1531,8 @@ function App() {
   const sortedTrips = useMemo(() => [...trips].sort((a, b) => new Date(b.updatedAt || b.savedAt) - new Date(a.updatedAt || a.savedAt)), [trips]);
   const overallPending = useMemo(() => sortedTrips.reduce((sum, item) => sum + calculate(item).pending, 0), [sortedTrips]);
   const freightDetails = useMemo(() => sortedTrips.flatMap((savedTrip) => (savedTrip.freights || []).map((freight, index) => {
-    const totalLr = number(freight.amount) + number(freight.loadingCharge) + number(freight.unloadingCharge);
+    const hasLoadingExpenses = Array.isArray(savedTrip.expenses?.loadingUnloadingExpenses) && savedTrip.expenses.loadingUnloadingExpenses.length > 0;
+    const totalLr = number(freight.amount) + (hasLoadingExpenses ? 0 : (number(freight.loadingCharge) + number(freight.unloadingCharge)));
     const balTotal = (freight.balancePayments || []).reduce((sum, b) => sum + number(b.amount), 0);
     const totalRec = number(freight.received) + balTotal;
     return {
@@ -1668,29 +1775,75 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
           </label>
           <Field label="Assigned driver" value={trip.driver} onChange={(value) => updateTrip('driver', value)} required />
         </div>
-        <div className="dates-row">
-          <Field
-            label="Start date"
-            type="date"
-            value={trip.startDate}
-            onChange={(value) => {
-              updateTrip('startDate', value);
-              // Auto-update trip number if user hasn't typed a custom one
-              if (!trip.tripNumber || trip.tripNumber === getNextTripNumber(trips, trip.startDate)) {
-                updateTrip('tripNumber', getNextTripNumber(trips, value));
-              }
-            }}
-          />
-          <Field label="End date" type="date" value={trip.endDate} onChange={(value) => updateTrip('endDate', value)} />
-          <div className="dates-total">
-            <span>Total days</span>
+
+        {/* Dates and Origin/Destination Places */}
+        <div className="dates-places-grid">
+          <div className="date-place-card origin-card">
+            <div className="date-place-card-title">
+              <span>🚩 Trip Origin / Start</span>
+            </div>
+            <div className="date-place-card-fields">
+              <Field
+                label="Start date"
+                type="date"
+                value={trip.startDate}
+                onChange={(value) => {
+                  updateTrip('startDate', value);
+                  // Auto-update trip number if user hasn't typed a custom one
+                  if (!trip.tripNumber || trip.tripNumber === getNextTripNumber(trips, trip.startDate)) {
+                    updateTrip('tripNumber', getNextTripNumber(trips, value));
+                  }
+                }}
+              />
+              <Field
+                label="Start place (Origin)"
+                value={trip.startPlace || ''}
+                onChange={(value) => updateTrip('startPlace', value)}
+                placeholder="e.g. Salem, Namakkal, Sankagiri"
+              />
+            </div>
+          </div>
+
+          <div className="date-place-card dest-card">
+            <div className="date-place-card-title">
+              <span>🏁 Trip Destination / End</span>
+            </div>
+            <div className="date-place-card-fields">
+              <Field
+                label="End date"
+                type="date"
+                value={trip.endDate}
+                onChange={(value) => updateTrip('endDate', value)}
+              />
+              <Field
+                label="End place (Destination)"
+                value={trip.endPlace || ''}
+                onChange={(value) => updateTrip('endPlace', value)}
+                placeholder="e.g. Chennai, Bangalore, Hyderabad"
+              />
+            </div>
+          </div>
+
+          <div className="dates-total-card">
+            <span>Total duration</span>
             <strong>{calculateDays(trip.startDate, trip.endDate)} <small>{calculateDays(trip.startDate, trip.endDate) === 1 ? 'DAY' : 'DAYS'}</small></strong>
           </div>
         </div>
+
         <div className="odometer-row">
           <Field label="Start KM" type="number" min="0" value={trip.startKm} onChange={(value) => updateTrip('startKm', value)} />
           <Field label="End KM" type="number" min="0" value={trip.endKm} onChange={(value) => updateTrip('endKm', value)} />
-          <div className="odometer-total"><span>Total distance</span><strong>{Math.max(0, number(trip.endKm) - number(trip.startKm)).toLocaleString('en-IN')} <small>KM</small></strong></div>
+          <div className="odometer-total">
+            <span>Total distance & mileage</span>
+            <div className="odometer-stats-flex">
+              <strong>{Math.max(0, number(trip.endKm) - number(trip.startKm)).toLocaleString('en-IN')} <small>KM</small></strong>
+              {totals.mileage > 0 && (
+                <span className="odometer-mileage-tag" title="Calculated from total KM and diesel consumed">
+                  ⚡ {totals.mileage} KM/L ({totals.totalLitres || 0} L)
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1698,7 +1851,7 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
         <SectionTitle icon="▣" action={<Button variant="primary" type="button" onClick={() => addRow('freights')}>＋ Add LR</Button>}>Freight details</SectionTitle>
         <div className="freight-entries-list">
           {trip.freights.map((row, index) => {
-            const lrTotal = number(row.amount) + number(row.loadingCharge) + number(row.unloadingCharge);
+            const lrTotal = number(row.amount) + (trip.expenses?.loadingUnloadingExpenses?.length ? 0 : (number(row.loadingCharge) + number(row.unloadingCharge)));
             const advance = number(row.received);
             const balancePayments = Array.isArray(row.balancePayments) ? row.balancePayments : [];
             const balReceived = balancePayments.reduce((sum, b) => sum + number(b.amount), 0);
@@ -1726,8 +1879,6 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
                   <Field label="Material" value={row.material} onChange={(value) => updateRow('freights', row.id, 'material', value)} placeholder="Goods description" />
                   <Field label="Weight (Tons)" type="number" min="0" step="0.1" value={row.weight} onChange={(value) => updateRow('freights', row.id, 'weight', value)} placeholder="0.0" />
                   <Field label="Freight amount (₹)" type="number" min="0" value={row.amount} onChange={(value) => updateRow('freights', row.id, 'amount', value)} placeholder="0" />
-                  <Field label="Loading charge (₹)" type="number" min="0" value={row.loadingCharge} onChange={(value) => updateRow('freights', row.id, 'loadingCharge', value)} placeholder="0" />
-                  <Field label="Unloading charge (₹)" type="number" min="0" value={row.unloadingCharge} onChange={(value) => updateRow('freights', row.id, 'unloadingCharge', value)} placeholder="0" />
                   <Field label="Advance received (₹)" type="number" min="0" value={row.received} onChange={(value) => updateRow('freights', row.id, 'received', value)} placeholder="0" />
                   <Field label="Advance date" type="date" value={row.advanceDate || trip.startDate || today} onChange={(value) => updateRow('freights', row.id, 'advanceDate', value)} />
                   <label className="field">
@@ -1833,14 +1984,12 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
           {trip.freights.length === 0 && <div className="empty-row">No freight entries yet. Select “＋ Add LR” to start.</div>}
         </div>
         <div className="total-strip freight-summary-strip">
-          <div><span>Freight charges: </span><strong>{amount(totals.freightAmount ?? totals.freight)}</strong></div>
-          {(number(totals.loadingTotal) > 0 || number(totals.unloadingTotal) > 0) && (
-            <div><span>Loading & Unloading: </span><strong>{amount(number(totals.loadingTotal) + number(totals.unloadingTotal))}</strong></div>
-          )}
+          <div><span>Freight billed: </span><strong>{amount(totals.freightAmount ?? totals.freight)}</strong></div>
           <div><span>Advance received: </span><strong style={{ color: '#059669' }}>{amount(totals.advanceReceived ?? totals.received)}</strong></div>
           {number(totals.balanceReceived) > 0 && (
             <div><span>Balance received: </span><strong style={{ color: '#059669' }}>{amount(totals.balanceReceived)}</strong></div>
           )}
+          <div><span>Total received: </span><strong style={{ color: '#059669' }}>{amount(totals.received)}</strong></div>
           <div><span>Pending balance: </span><strong style={{ color: totals.pending ? '#b45309' : '#059669' }}>{amount(totals.pending)}</strong></div>
         </div>
       </section>
@@ -1892,6 +2041,10 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
         </div>
       </section>
       <section className="panel">
+        <SectionTitle icon="🚚">Loading & Unloading expense</SectionTitle>
+        <LoadingUnloadingEntries rows={trip.expenses.loadingUnloadingExpenses || []} updateRow={updateRow} addRow={addRow} removeRow={removeRow} />
+      </section>
+      <section className="panel">
         <SectionTitle icon="₹">Toll expense</SectionTitle>
         <TollEntries rows={trip.expenses.tolls || []} updateRow={updateRow} addRow={addRow} removeRow={removeRow} />
       </section>
@@ -1918,6 +2071,12 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
           <div className="driver-advance-adjustment">
             <span>Less: Diesel paid by driver (subtracted from advance)</span>
             <strong className="positive">- {amount(totals.dieselDriver)}</strong>
+          </div>
+        )}
+        {totals.loadingDriver > 0 && (
+          <div className="driver-advance-adjustment">
+            <span>Less: Loading & unloading paid by driver (subtracted from advance)</span>
+            <strong className="positive">- {amount(totals.loadingDriver)}</strong>
           </div>
         )}
         {totals.tollsDriver > 0 && (
@@ -1959,6 +2118,65 @@ function TripExpenses({ trip, totals, updateExpense, updateRow, addRow, removeRo
         </div>
       </section>
     </>
+  );
+}
+
+function LoadingUnloadingEntries({ rows, updateRow, addRow, removeRow }) {
+  const ownerTotal = (rows || []).reduce((sum, row) => {
+    if (row.paidByOwner !== undefined && row.paidByOwner !== '') return sum + number(row.paidByOwner);
+    if (row.paidByDriver !== undefined && row.paidByDriver !== '') return sum;
+    return sum + number(row.amount);
+  }, 0);
+  const driverTotal = (rows || []).reduce((sum, row) =>
+    (row.paidByDriver !== undefined && row.paidByDriver !== '') ? sum + number(row.paidByDriver) : sum, 0);
+  const total = ownerTotal + driverTotal;
+
+  return (
+    <div className="repeatable-block">
+      <div className="repeatable-heading">
+        <strong>Hamali, loading & unloading charges</strong>
+        <Button type="button" onClick={() => addRow('loadingUnloadingExpenses')}>＋ Add loading / unloading</Button>
+      </div>
+      {(rows || []).map((row, index) => (
+        <div className="repeatable-row loading-expense-row expense-split-card" key={row.id}>
+          <Field label="Date" type="date" value={row.date} onChange={(value) => updateRow('loadingUnloadingExpenses', row.id, 'date', value)} />
+          <label className="field">
+            <span>Charge type</span>
+            <select
+              className="field-select"
+              value={row.type || 'Loading charge'}
+              onChange={(e) => updateRow('loadingUnloadingExpenses', row.id, 'type', e.target.value)}
+            >
+              <option value="Loading charge">Loading charge</option>
+              <option value="Unloading charge">Unloading charge</option>
+              <option value="Both (Loading & Unloading)">Both (Loading & Unloading)</option>
+              <option value="Hamali / Coolie">Hamali / Coolie</option>
+            </select>
+          </label>
+          <Field label="Place name / Warehouse" value={row.place || ''} onChange={(value) => updateRow('loadingUnloadingExpenses', row.id, 'place', value)} placeholder="e.g. Hyderabad Godown, Port" />
+          <Field label="Paid by owner (₹)" type="number" min="0" value={row.paidByOwner ?? ''} onChange={(value) => updateRow('loadingUnloadingExpenses', row.id, 'paidByOwner', value)} placeholder="0" />
+          <Field label="Paid by driver (₹)" type="number" min="0" value={row.paidByDriver ?? ''} onChange={(value) => updateRow('loadingUnloadingExpenses', row.id, 'paidByDriver', value)} placeholder="0" />
+          <div className="entry-rate">
+            <span>Total</span>
+            <strong>{amount(number(row.paidByOwner) + number(row.paidByDriver) || number(row.amount))}</strong>
+          </div>
+          <button
+            className="icon-button row-delete"
+            type="button"
+            onClick={() => removeRow('loadingUnloadingExpenses', row.id)}
+            aria-label={`Remove loading charge ${index + 1}`}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      {(!rows || !rows.length) && <div className="empty-row">No loading or unloading charges recorded.</div>}
+      <div className="total-strip diesel-summary-strip">
+        <div><span>Paid by owner (operating expense): </span><strong>{amount(ownerTotal)}</strong></div>
+        <div><span>Paid by driver (less advance): </span><strong>{amount(driverTotal)}</strong></div>
+        <div><span>Total loading & unloading: </span><strong>{amount(total)}</strong></div>
+      </div>
+    </div>
   );
 }
 
@@ -2205,6 +2423,8 @@ function Settlement({ trip, totals, updateExpense }) {
     ['Freight collection', totals.freight, 'positive'],
     ['Diesel expense (Paid by owner)', -totals.dieselOwner],
     ...(totals.dieselDriver > 0 ? [['Diesel paid by driver (adjusted in advance)', -totals.dieselDriver, 'neutral']] : []),
+    ['Loading & unloading (Paid by owner)', -totals.loadingOwner],
+    ...(totals.loadingDriver > 0 ? [['Loading & unloading paid by driver (adjusted in advance)', -totals.loadingDriver, 'neutral']] : []),
     ['Other expenses (Paid by owner)', -totals.otherOwner],
     ...(totals.otherDriver > 0 ? [['Other expenses paid by driver (adjusted in advance)', -totals.otherDriver, 'neutral']] : []),
     ['Toll expense (Paid by owner)', -totals.tollsOwner],
@@ -2241,8 +2461,14 @@ function Settlement({ trip, totals, updateExpense }) {
           {totals.dieselDriver > 0 && (
             <div><span>Less: Diesel paid by driver</span><strong className="positive">- {amount(totals.dieselDriver)}</strong></div>
           )}
+          {totals.loadingDriver > 0 && (
+            <div><span>Less: Loading & unloading paid by driver</span><strong className="positive">- {amount(totals.loadingDriver)}</strong></div>
+          )}
           {totals.tollsDriver > 0 && (
             <div><span>Less: Tolls paid by driver</span><strong className="positive">- {amount(totals.tollsDriver)}</strong></div>
+          )}
+          {totals.policeDriver > 0 && (
+            <div><span>Less: Police & RTO paid by driver</span><strong className="positive">- {amount(totals.policeDriver)}</strong></div>
           )}
           {totals.otherDriver > 0 && (
             <div><span>Less: Other expenses paid by driver</span><strong className="positive">- {amount(totals.otherDriver)}</strong></div>
@@ -2310,15 +2536,35 @@ function Reports({ trips, pending, onCreate, onEdit, onDelete, onDownload, trans
 }
 
 function TripListRow({ trip, onEdit, onDelete, onDownload, pdfLoading }) {
-  // Use pre-computed totals if available (saved on trip), else recalculate
-  const totals = trip.totals && trip.totals.freight !== undefined ? trip.totals : calculate(trip);
+  // Always calculate to ensure all fields (totalKm, mileage, totalLitres) are present and fresh
+  const totals = calculate(trip);
   const days = calculateDays(trip.startDate, trip.endDate);
+  const hasRoute = trip.startPlace || trip.endPlace;
+  const km = number(totals.totalKm) || Math.max(0, number(trip.endKm) - number(trip.startKm));
+  const mileage = number(totals.mileage);
+  const litres = number(totals.totalLitres);
   return (
     <article className="trip-list-row">
       <div className="trip-identity">
         <div className="trip-avatar"><Icon>↗</Icon></div>
-        <div><strong>{trip.tripNumber || 'Untitled trip'}</strong><span>{trip.truck || 'No vehicle'} · {trip.driver || 'No driver'}</span>
-          <span>{trip.startDate || 'No start date'}{trip.endDate ? ` – ${trip.endDate}` : ''}{days > 0 ? ` (${days} ${days === 1 ? 'day' : 'days'})` : ''}</span></div>
+        <div>
+          <strong>{trip.tripNumber || 'Untitled trip'}</strong>
+          <span>{trip.truck || 'No vehicle'} · {trip.driver || 'No driver'}</span>
+          {hasRoute && (
+            <span className="trip-route-badge">
+              📍 {trip.startPlace || 'Origin'} ➔ {trip.endPlace || 'Destination'}
+            </span>
+          )}
+          <span className="trip-dates-km-row">
+            <span>{trip.startDate || 'No start date'}{trip.endDate ? ` – ${trip.endDate}` : ''}{days > 0 ? ` (${days} ${days === 1 ? 'day' : 'days'})` : ''}</span>
+            {km > 0 && <span className="trip-distance-chip">{km.toLocaleString('en-IN')} KM</span>}
+            {mileage > 0 && (
+              <span className="trip-mileage-chip" title="Overall fuel mileage based on KM and diesel consumed">
+                ⚡ {mileage} KM/L ({litres} L)
+              </span>
+            )}
+          </span>
+        </div>
       </div>
       <div className="trip-value"><span>Freight</span><strong>{amount(totals.freight)}</strong></div>
       <div className="trip-value"><span>Pending</span><strong className={totals.pending ? 'negative' : 'positive'}>{amount(totals.pending)}</strong></div>

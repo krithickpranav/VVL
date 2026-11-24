@@ -2848,6 +2848,14 @@ h1, h2, p {
     grid-template-columns: 1fr;
   }
 
+  .dates-places-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .date-place-card-fields {
+    grid-template-columns: 1fr !important;
+  }
+
   .odometer-row {
     grid-template-columns: 1fr;
   }
@@ -2869,6 +2877,171 @@ h1, h2, p {
   .repeatable-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* Trip Places & Dates Grid */
+.dates-places-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 14px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+
+.date-place-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.date-place-card.origin-card {
+  border-left: 3px solid #2563eb;
+}
+
+.date-place-card.dest-card {
+  border-left: 3px solid #059669;
+}
+
+.date-place-card-title {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.date-place-card-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.date-place-card-fields .field input {
+  background: #fff;
+  border-color: #cbd5e1;
+}
+
+.dates-total-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-width: 110px;
+  padding: 12px 16px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.dates-total-card span {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dates-total-card strong {
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dates-total-card small {
+  font-size: 10px;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+/* Odometer & Mileage Tags */
+.odometer-stats-flex {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.odometer-mileage-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Loading & Unloading Expense Rows */
+.loading-expense-row {
+  display: grid;
+  grid-template-columns: 130px 180px 1fr 120px 120px 90px 32px;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .dates-places-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dates-total-card {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    gap: 12px;
+  }
+  .loading-expense-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Saved Trips Ledger / Row Route & Mileage Badges */
+.trip-route-badge {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #eff6ff;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid #dbeafe;
+}
+
+.trip-dates-km-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.trip-distance-chip {
+  font-weight: 700;
+  color: #334155;
+  font-size: 11px;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.trip-mileage-chip {
+  font-weight: 700;
+  color: #047857;
+  font-size: 11px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 /* Print Optimization */
