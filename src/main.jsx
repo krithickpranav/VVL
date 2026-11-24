@@ -1318,30 +1318,39 @@ function App() {
       doc.text(`PENDING TO RECEIVE FROM TRANSPORTER: ${inr(reportTotals.pending)}`, left + 4, y + 8);
       y += 14;
 
-      // 3. Trip Operational Expenses (Paid by Owner) & Net Profit
+      // 2. Trip Overall Expenses & Net Profit
       checkPageBreak(45);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(20, 33, 54);
-      doc.text('2. Trip Operational Expenses (Paid by Owner) & Net Profit', left, y);
+      doc.text('2. Trip Overall Expenses & Net Profit', left, y);
       y += 4.5;
 
+      const totalTripExpenses = reportTotals.dieselTotal + reportTotals.tolls + reportTotals.loadingUnloadingTotal + reportTotals.policeRto + reportTotals.vehicleExpenses + reportTotals.otherExpenses + (reportTotals.driverBata || 0);
+      const overallNetProfit = reportTotals.freight - totalTripExpenses;
+
+      const tollCount = (savedTrip.expenses?.tolls || []).length;
+      const loadingCount = (savedTrip.expenses?.loadingUnloadingExpenses || []).length;
+      const policeCount = (savedTrip.expenses?.policeRtoExpenses || []).length;
+      const billCount = (savedTrip.expenses?.vehicleExpenses || []).length;
+      const otherCount = (savedTrip.expenses?.otherExpenses || []).length;
+
       const opsItems = [
-        ['Diesel expense (Paid by owner)', `${reportTotals.totalLitres || 0} L consumed across ${reportTotals.totalKm} KM | Mileage: ${reportTotals.mileage > 0 ? `${reportTotals.mileage} KM/L` : 'N/A'}`, reportTotals.dieselOwner],
-        ['Loading & unloading charges (Paid by owner)', `${(savedTrip.expenses?.loadingUnloadingExpenses || []).length} entries (coolie / hamali)`, reportTotals.loadingOwner || 0],
-        ['FASTag toll expense (Paid by owner)', 'FASTag statement / online recharge', reportTotals.tollsOwner],
-        ['Police case & RTO expense (Paid by owner)', 'Checkpost, fines & permits', reportTotals.policeOwner],
-        ['Bill expenses (Paid by owner)', 'Tyre puncture, AdBlue & repairs', reportTotals.vehicleOwner],
-        ['Other expenses (Paid by owner)', 'Food, misc. & driver daily expense', reportTotals.otherOwner],
-        ...(reportTotals.driverBata > 0 ? [[`Driver bata (${reportTotals.driverBataPct}%)`, 'Driver trip bata allowance', reportTotals.driverBata]] : []),
-        ['TOTAL OPERATING EXPENSES', 'Total expenses paid directly by owner', reportTotals.operatingExpenses],
-        ['NET PROFIT', 'Total Freight Collection minus Total Operating Expenses', reportTotals.netProfit],
-        ['PENDING AMOUNT TO RECEIVE', 'Freight balance still due from transporters', reportTotals.pending],
+        ['Diesel expense', `${reportTotals.totalLitres || 0} L diesel consumed across ${reportTotals.totalKm} KM | Mileage: ${reportTotals.mileage > 0 ? `${reportTotals.mileage} KM/L` : 'N/A'}`, reportTotals.dieselTotal],
+        ['FASTag toll expense', `${tollCount} toll plaza / statement entries`, reportTotals.tolls],
+        ['Loading & unloading charges', `${loadingCount} entries (hamali / coolie / loading charges)`, reportTotals.loadingUnloadingTotal],
+        ['Police case & RTO expense', `${policeCount} checkpoint, fine, permit & case entries`, reportTotals.policeRto],
+        ['Bill expenses (repairs & maintenance)', `${billCount} bill entries (Tyre puncture, AdBlue oil, grease & repairs)`, reportTotals.vehicleExpenses],
+        ['Other expenses', `${otherCount} other entries (Food, daily expenses & misc.)`, reportTotals.otherExpenses],
+        ...(reportTotals.driverBata > 0 ? [[`Driver bata allowance (${reportTotals.driverBataPct}%)`, 'Driver trip bata allowance on freight', reportTotals.driverBata]] : []),
+        ['TOTAL TRIP EXPENSES', 'Total expenses incurred for this trip (Diesel + Tolls + Bills + Misc)', totalTripExpenses],
+        ['NET PROFIT', 'Total Freight Collection minus Total Trip Expenses', overallNetProfit],
+        ['PENDING FREIGHT TO RECEIVE', 'Balance freight still due from transporters', reportTotals.pending],
       ];
 
       opsItems.forEach(([label, desc, val]) => {
         checkPageBreak(8);
-        const isHighlight = label === 'TOTAL OPERATING EXPENSES' || label === 'NET PROFIT' || label === 'PENDING AMOUNT TO RECEIVE';
+        const isHighlight = label === 'TOTAL TRIP EXPENSES' || label === 'NET PROFIT' || label === 'PENDING FREIGHT TO RECEIVE';
         doc.setDrawColor(isHighlight ? 203 : 241, isHighlight ? 213 : 245, isHighlight ? 225 : 249);
         doc.line(left, y + 1.2, pageWidth - left, y + 1.2);
         doc.setFont('helvetica', isHighlight ? 'bold' : 'normal');
@@ -1356,7 +1365,7 @@ function App() {
         doc.setFontSize(isHighlight ? 8 : 7.2);
         if (label === 'NET PROFIT') {
           doc.setTextColor(val >= 0 ? 5 : 220, val >= 0 ? 150 : 38, val >= 0 ? 105 : 38);
-        } else if (label === 'PENDING AMOUNT TO RECEIVE') {
+        } else if (label === 'PENDING FREIGHT TO RECEIVE') {
           doc.setTextColor(val > 0 ? 180 : 5, val > 0 ? 83 : 150, val > 0 ? 9 : 105);
         } else {
           doc.setTextColor(15, 23, 42);
@@ -1371,13 +1380,13 @@ function App() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(20, 33, 54);
-      doc.text('3. Driver Operated Expenses & Settlement Account', left, y);
+      doc.text('3. Driver Operated Expenses & Advance Settlement', left, y);
       y += 4.5;
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.2);
       doc.setTextColor(71, 85, 105);
-      doc.text('A. Expenses Paid Directly by Driver En Route (Subtracted from Advance):', left + 2, y);
+      doc.text('A. Driver Operated Expenses (Incurred & Paid by Driver En Route):', left + 2, y);
       y += 4;
 
       const driverExpenseRows = [];
