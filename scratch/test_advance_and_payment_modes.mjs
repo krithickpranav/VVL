@@ -172,6 +172,15 @@ async function runTest() {
     await balRow.locator('label:has-text("Balance paid (₹)") input').fill('3000');
     await balRow.locator('select.field-select').selectOption('Cash');
 
+    // Add Amount sent by driver to owner (₹8,000) to settle remaining excess advance
+    console.log('Adding Amount sent by driver to owner (₹8,000)...');
+    const retBlock = page.locator('.repeatable-block:has-text("Amount sent by driver to owner")');
+    await retBlock.locator('button:has-text("Add payment")').last().click();
+    await page.waitForTimeout(300);
+    const retRow = retBlock.locator('.driver-advance-row').last();
+    await retRow.locator('label:has-text("Amount sent to owner (₹)") input').fill('8000');
+    await retRow.locator('select.field-select').selectOption('GPay');
+
     // Move to Step 3: Settlement
     await page.locator('button.step-tab:has-text("Settlement")').click();
     await page.waitForTimeout(600);
@@ -182,6 +191,9 @@ async function runTest() {
 
     const payableRowText = await page.locator('.payable-row').innerText();
     console.log('Settlement payable row text:\n', payableRowText);
+    if (!payableRowText.includes('8,000') || !payableRowText.includes('Fully settled')) {
+      throw new Error(`Driver return to owner settlement mismatch! Text: ${payableRowText}`);
+    }
 
     // Test Responsiveness at Mobile viewport (375x667)
     console.log('Testing mobile responsiveness (375px)...');
