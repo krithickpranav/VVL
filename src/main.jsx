@@ -1544,22 +1544,89 @@ function App() {
         y += 7;
       }
 
-      // Driver Advance & Settlement Ledger
+      // B. Driver Advance Details (Date - Amount - Mode of Payment)
+      checkPageBreak(35);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.2);
+      doc.setTextColor(71, 85, 105);
+      doc.text('B. Driver Advance Details (Date - Amount - Mode of Payment):', left + 2, y);
+      y += 4;
+
+      const advEntries = (savedTrip.expenses?.driverAdvances || []).filter(a => number(a.amount) > 0);
+      const driverAdvDetailRows = [];
+      advEntries.forEach((a, idx) => {
+        driverAdvDetailRows.push([
+          `Direct Advance #${idx + 1} (By Owner)`,
+          a.date || '-',
+          a.paymentMode || 'GPay',
+          number(a.amount),
+        ]);
+      });
+      (savedTrip.freights || []).forEach((item, fIdx) => {
+        const fAdvDriver = item.receivedByDriver !== undefined && item.receivedByDriver !== ''
+          ? number(item.receivedByDriver)
+          : (item.receivedByOwner !== undefined && item.receivedByOwner !== '' ? 0 : (item.paymentMode === 'Cash to driver' ? number(item.received) : 0));
+        if (fAdvDriver > 0) {
+          driverAdvDetailRows.push([
+            `Freight Adv Collected (LR #${fIdx + 1})`,
+            item.driverAdvanceDate || item.advanceDate || savedTrip.startDate || '-',
+            item.driverPaymentMode || 'Cash',
+            fAdvDriver,
+          ]);
+        }
+      });
+
+      if (driverAdvDetailRows.length === 0) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6.8);
+        doc.setTextColor(148, 163, 184);
+        doc.text('No driver advances recorded for this trip.', left + 4, y);
+        y += 5.5;
+      } else {
+        const advWidths = [68, 32, 46, 36];
+        doc.setFillColor(241, 245, 249);
+        doc.rect(left, y, printableWidth, 5, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(51, 65, 85);
+        let ax = left + 2;
+        ['ADVANCE SOURCE', 'DATE', 'MODE OF PAYMENT', 'AMOUNT'].forEach((h, i) => {
+          if (i === 3) {
+            doc.text(h, pageWidth - left - 2, y + 3.5, { align: 'right' });
+          } else {
+            doc.text(h, ax, y + 3.5);
+          }
+          ax += advWidths[i];
+        });
+        y += 6.5;
+
+        driverAdvDetailRows.forEach(([source, date, mode, amt]) => {
+          checkPageBreak(7);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(51, 65, 85);
+          doc.text(doc.splitTextToSize(source, advWidths[0] - 3)[0] || '', left + 2, y);
+          doc.text(doc.splitTextToSize(date, advWidths[1] - 2)[0] || '', left + advWidths[0] + 2, y);
+          doc.text(doc.splitTextToSize(mode, advWidths[2] - 2)[0] || '', left + advWidths[0] + advWidths[1] + 2, y);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(inr(amt), pageWidth - left - 2, y, { align: 'right' });
+          y += 4.5;
+        });
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`Total Driver Advance (Gross): ${inr(reportTotals.grossDriverAdvance)}`, pageWidth - left - 2, y, { align: 'right' });
+        y += 7;
+      }
+
+      // C. Driver Advance & Settlement Ledger
       checkPageBreak(40);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.2);
       doc.setTextColor(71, 85, 105);
-      doc.text('B. Driver Advance Ledger & Settlement Balance:', left + 2, y);
+      doc.text('C. Driver Advance Ledger & Settlement Balance:', left + 2, y);
       y += 4;
-
-      const advEntries = savedTrip.expenses?.driverAdvances || [];
-      const directDesc = advEntries.length
-        ? advEntries.map(a => `${a.date || '-'}: ${inr(a.amount)} (${a.paymentMode || 'GPay'})`).join(' | ')
-        : 'No direct advances';
-      const driverFreightAdv = reportTotals.advanceDriver > 0
-        ? `Freight adv collected by driver: ${inr(reportTotals.advanceDriver)}`
-        : '';
-      const combinedAdvDesc = [directDesc, driverFreightAdv].filter(Boolean).join(' + ');
 
       const balPaidDesc = (savedTrip.expenses?.driverBalancePayments || []).length
         ? (savedTrip.expenses?.driverBalancePayments || []).map(b => `${b.date || '-'}: ${inr(b.amount)} (${b.paymentMode || 'Account transfer'})`).join(' | ')
@@ -1570,7 +1637,7 @@ function App() {
         : 'Returned to owner';
 
       const setRows = [
-        ['Driver Advance Given (Gross)', combinedAdvDesc, inr(reportTotals.grossDriverAdvance)],
+        ['Driver Advance Given (Gross)', 'Direct owner advances + Freight adv collected by driver', inr(reportTotals.grossDriverAdvance)],
         ['Less: Total driver-operated expenses', 'Subtracted from advance (expenses incurred by driver)', `- ${inr(reportTotals.totalDriverExpenses)}`],
         ['Net Advance with Driver', 'Advance remaining in driver hand', inr(reportTotals.driverAdvance)],
         ['Driver Commission / Bata Earned', reportTotals.commission > 0 ? `${reportTotals.commissionPct}% of freight` : (reportTotals.driverBataPct > 0 ? `${reportTotals.driverBataPct}% of freight` : 'Commission'), `+ ${inr(driverCost)}`],
