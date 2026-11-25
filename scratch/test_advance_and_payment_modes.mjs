@@ -55,10 +55,13 @@ async function runTest() {
     await page.locator('label:has-text("Weight (Tons)") input').last().fill('24.5');
     await page.locator('label:has-text("Freight amount (₹)") input').last().fill('100000');
 
-    // Enter Advance received by owner and driver
+    // Enter Advance received by owner and driver with individual payment modes & dates
     console.log('Entering Advance received by Owner (₹40,000) and Driver (₹10,000)...');
-    await page.locator('label:has-text("Advance received by owner (₹)") input').last().fill('40000');
-    await page.locator('label:has-text("Advance received by driver (₹)") input').last().fill('10000');
+    const advBox = page.locator('.freight-advance-split-box').last();
+    await advBox.locator('label:has-text("Advance received by owner (₹)") input').fill('40000');
+    await advBox.locator('label:has-text("Mode of payment (Owner)") select').selectOption('Account transfer');
+    await advBox.locator('label:has-text("Advance received by driver (₹)") input').fill('10000');
+    await advBox.locator('label:has-text("Mode of payment (Driver)") select').selectOption('GPay');
     await page.waitForTimeout(300);
 
     // Verify auto-credit notice
@@ -229,7 +232,11 @@ async function runTest() {
     console.log('===========================================================');
   } finally {
     await browser.close();
-    server.kill();
+    if (server.pid) {
+      spawn('taskkill', ['/pid', String(server.pid), '/f', '/t'], { shell: true });
+    } else {
+      server.kill();
+    }
   }
 }
 

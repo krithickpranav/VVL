@@ -240,6 +240,10 @@ function normalizeTrip(trip) {
       received: row.received ?? row.advanceReceived ?? '',
       advanceDate: row.advanceDate || row.date || trip.startDate || today,
       paymentMode: row.paymentMode || 'GPay',
+      ownerPaymentMode: row.ownerPaymentMode || (row.paymentMode !== 'Cash to driver' ? row.paymentMode : '') || 'GPay',
+      ownerAdvanceDate: row.ownerAdvanceDate || row.advanceDate || row.date || trip.startDate || today,
+      driverPaymentMode: row.driverPaymentMode || (row.paymentMode === 'Cash to driver' ? 'Cash' : '') || 'Cash',
+      driverAdvanceDate: row.driverAdvanceDate || row.advanceDate || row.date || trip.startDate || today,
       balancePayments: (Array.isArray(row.balancePayments) ? row.balancePayments : [])
         .map((b) => ({
           id: b.id || makeId(),
@@ -1006,6 +1010,10 @@ function App() {
             received: '',
             advanceDate: today,
             paymentMode: 'GPay',
+            ownerPaymentMode: 'GPay',
+            ownerAdvanceDate: today,
+            driverPaymentMode: 'Cash',
+            driverAdvanceDate: today,
             balancePayments: [],
           }
         : group === 'loadingUnloadingExpenses'
@@ -1297,28 +1305,42 @@ function App() {
         doc.line(left, y + 1.5, pageWidth - left, y + 1.5);
         y += 5;
 
-        // Advance Received
-        if (advance > 0 || item.received !== '') {
-          checkPageBreak(8);
+        // Advance Received (Owner & Driver separated with individual date and mode)
+        if (advOwner > 0) {
+          checkPageBreak(7);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(71, 85, 105);
+          doc.text('- Advance Received (Owner)', left + fWidths[0] + 4, y);
+          doc.text(item.ownerAdvanceDate || item.advanceDate || savedTrip.startDate || '-', left + fWidths[0] + fWidths[1] + 2, y);
+          doc.text(item.ownerPaymentMode || item.paymentMode || 'GPay', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+          doc.setTextColor(5, 150, 105);
+          doc.text(inr(advOwner), pageWidth - left - 2, y, { align: 'right' });
+          y += 4.2;
+        }
+        if (advDriver > 0) {
+          checkPageBreak(7);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(71, 85, 105);
+          doc.text('- Advance Received (Driver A/c)', left + fWidths[0] + 4, y);
+          doc.text(item.driverAdvanceDate || item.advanceDate || savedTrip.startDate || '-', left + fWidths[0] + fWidths[1] + 2, y);
+          doc.text(item.driverPaymentMode || 'Cash', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+          doc.setTextColor(5, 150, 105);
+          doc.text(inr(advDriver), pageWidth - left - 2, y, { align: 'right' });
+          y += 4.2;
+        }
+        if (advance === 0 && item.received !== '') {
+          checkPageBreak(7);
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(6.8);
           doc.setTextColor(71, 85, 105);
           doc.text('- Advance Received', left + fWidths[0] + 4, y);
-          doc.text(item.advanceDate || savedTrip.startDate || '-', left + fWidths[0] + fWidths[1] + 2, y);
-          doc.text(item.paymentMode || 'GPay', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
+          doc.text(item.ownerAdvanceDate || item.advanceDate || savedTrip.startDate || '-', left + fWidths[0] + fWidths[1] + 2, y);
+          doc.text(item.ownerPaymentMode || item.paymentMode || 'GPay', left + fWidths[0] + fWidths[1] + fWidths[2] + 2, y);
           doc.setTextColor(5, 150, 105);
-          doc.text(inr(advance), pageWidth - left - 2, y, { align: 'right' });
-          y += 4;
-
-          // Advance split sub-line if driver collected advance directly
-          if (advDriver > 0) {
-            checkPageBreak(5);
-            doc.setFont('helvetica', 'italic');
-            doc.setFontSize(6);
-            doc.setTextColor(100, 116, 139);
-            doc.text(`   [Owner: ${inr(advOwner)} | Driver: ${inr(advDriver)} (adds to driver account)]`, left + fWidths[0] + 4, y);
-            y += 3.8;
-          }
+          doc.text(inr(0), pageWidth - left - 2, y, { align: 'right' });
+          y += 4.2;
         }
 
         // Balance Receipts
@@ -1978,49 +2000,84 @@ function TripDetails({ trip, updateTrip, totals, addRow, updateRow, removeRow, v
                   <Field label="Material" value={row.material} onChange={(value) => updateRow('freights', row.id, 'material', value)} placeholder="Goods description" />
                   <Field label="Weight (Tons)" type="number" min="0" step="0.1" value={row.weight} onChange={(value) => updateRow('freights', row.id, 'weight', value)} placeholder="0.0" />
                   <Field label="Freight amount (₹)" type="number" min="0" value={row.amount} onChange={(value) => updateRow('freights', row.id, 'amount', value)} placeholder="0" />
-                  <Field
-                    label="Advance received by owner (₹)"
-                    type="number"
-                    min="0"
-                    value={row.receivedByOwner ?? (row.paymentMode !== 'Cash to driver' ? row.received : '')}
-                    onChange={(value) => {
-                      updateRow('freights', row.id, 'receivedByOwner', value);
-                      updateRow('freights', row.id, 'received', number(value) + number(row.receivedByDriver));
-                    }}
-                    placeholder="0"
-                  />
-                  <Field
-                    label="Advance received by driver (₹)"
-                    type="number"
-                    min="0"
-                    value={row.receivedByDriver ?? (row.paymentMode === 'Cash to driver' ? row.received : '')}
-                    onChange={(value) => {
-                      updateRow('freights', row.id, 'receivedByDriver', value);
-                      updateRow('freights', row.id, 'received', number(row.receivedByOwner) + number(value));
-                    }}
-                    placeholder="0"
-                  />
-                  <Field label="Advance date" type="date" value={row.advanceDate || trip.startDate || today} onChange={(value) => updateRow('freights', row.id, 'advanceDate', value)} />
-                  <label className="field">
-                    <span>Advance payment mode</span>
-                    <select
-                      className="field-select"
-                      value={row.paymentMode || 'GPay'}
-                      onChange={(e) => updateRow('freights', row.id, 'paymentMode', e.target.value)}
-                    >
-                      <option value="GPay">GPay / UPI</option>
-                      <option value="Account transfer">Account transfer</option>
-                      <option value="Cash to owner">Cash to owner</option>
-                      <option value="Cash to driver">Cash to driver</option>
-                      <option value="Cheque">Cheque</option>
-                    </select>
-                  </label>
-                  {advDriver > 0 && (
-                    <div className="lr-driver-adv-notice" style={{ gridColumn: '1 / -1', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '9px 13px', borderRadius: '7px', color: '#065f46', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '16px' }}>🚚</span>
-                      <span><strong>Driver Account Auto-Credit:</strong> ₹{advDriver.toLocaleString('en-IN')} received by driver directly from transporter is automatically added to the Driver's Advance Account.</span>
+                  <div className="freight-advance-split-box" style={{ gridColumn: '1 / -1' }}>
+                    <div className="freight-advance-row">
+                      <Field
+                        label="Advance received by owner (₹)"
+                        type="number"
+                        min="0"
+                        value={row.receivedByOwner ?? (row.paymentMode !== 'Cash to driver' ? row.received : '')}
+                        onChange={(value) => {
+                          updateRow('freights', row.id, 'receivedByOwner', value);
+                          updateRow('freights', row.id, 'received', number(value) + number(row.receivedByDriver));
+                        }}
+                        placeholder="0"
+                      />
+                      <label className="field">
+                        <span>Mode of payment (Owner)</span>
+                        <select
+                          className="field-select"
+                          value={row.ownerPaymentMode || row.paymentMode || 'GPay'}
+                          onChange={(e) => {
+                            updateRow('freights', row.id, 'ownerPaymentMode', e.target.value);
+                            updateRow('freights', row.id, 'paymentMode', e.target.value);
+                          }}
+                        >
+                          <option value="GPay">GPay / UPI</option>
+                          <option value="Account transfer">Account transfer</option>
+                          <option value="Cash to owner">Cash</option>
+                          <option value="Cheque">Cheque</option>
+                        </select>
+                      </label>
+                      <Field
+                        label="Date (Owner advance)"
+                        type="date"
+                        value={row.ownerAdvanceDate || row.advanceDate || trip.startDate || today}
+                        onChange={(value) => {
+                          updateRow('freights', row.id, 'ownerAdvanceDate', value);
+                          updateRow('freights', row.id, 'advanceDate', value);
+                        }}
+                      />
                     </div>
-                  )}
+                    <div className="freight-advance-row">
+                      <Field
+                        label="Advance received by driver (₹)"
+                        type="number"
+                        min="0"
+                        value={row.receivedByDriver ?? (row.paymentMode === 'Cash to driver' ? row.received : '')}
+                        onChange={(value) => {
+                          updateRow('freights', row.id, 'receivedByDriver', value);
+                          updateRow('freights', row.id, 'received', number(row.receivedByOwner) + number(value));
+                        }}
+                        placeholder="0"
+                      />
+                      <label className="field">
+                        <span>Mode of payment (Driver)</span>
+                        <select
+                          className="field-select"
+                          value={row.driverPaymentMode || 'Cash'}
+                          onChange={(e) => updateRow('freights', row.id, 'driverPaymentMode', e.target.value)}
+                        >
+                          <option value="Cash">Cash</option>
+                          <option value="GPay">GPay / UPI</option>
+                          <option value="Account transfer">Account transfer</option>
+                          <option value="Cheque">Cheque</option>
+                        </select>
+                      </label>
+                      <Field
+                        label="Date (Driver advance)"
+                        type="date"
+                        value={row.driverAdvanceDate || row.advanceDate || trip.startDate || today}
+                        onChange={(value) => updateRow('freights', row.id, 'driverAdvanceDate', value)}
+                      />
+                    </div>
+                    {advDriver > 0 && (
+                      <div className="lr-driver-adv-notice" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '9px 13px', borderRadius: '7px', color: '#065f46', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '16px' }}>🚚</span>
+                        <span><strong>Driver Account Auto-Credit:</strong> ₹{advDriver.toLocaleString('en-IN')} received by driver directly from transporter is automatically added to the Driver's Advance Account.</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Multiple Balance Payments Section */}
