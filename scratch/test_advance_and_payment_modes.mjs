@@ -198,6 +198,17 @@ async function runTest() {
       throw new Error(`Driver return to owner settlement mismatch! Text: ${payableRowText}`);
     }
 
+    // Verify Step 3 Operating Expenses (₹29,500) & Net Profit (₹70,500)
+    const profitCardText = await page.locator('.profit-card').innerText();
+    console.log('Settlement profit card:\n', profitCardText);
+    if (!profitCardText.includes('70,500')) {
+      throw new Error(`Net profit mismatch! Expected 70,500, got: ${profitCardText}`);
+    }
+    const ledgerText = await page.locator('.panel:has-text("Operating expense breakdown")').innerText();
+    if (!ledgerText.includes('29,500')) {
+      throw new Error(`Total operating expenses mismatch! Expected 29,500, got: ${ledgerText}`);
+    }
+
     // Test Responsiveness at Mobile viewport (375x667)
     console.log('Testing mobile responsiveness (375px)...');
     await page.setViewportSize({ width: 375, height: 667 });
@@ -216,10 +227,15 @@ async function runTest() {
     await page.locator('button.save-button:has-text("Save trip sheet")').click();
     await page.waitForTimeout(1000);
 
-    // Export PDF
-    console.log('Testing PDF Export...');
+    // Export PDF & verify Saved Trips mileage/distance
+    console.log('Testing Saved Trips display & PDF Export...');
     await page.locator('.side-nav button:has-text("Saved trips")').click();
     await page.waitForTimeout(600);
+    const savedTripRowText = await page.locator('.trip-list-row').first().innerText();
+    console.log('Saved trip row text:\n', savedTripRowText);
+    if (!savedTripRowText.includes('1,200 KM') || !savedTripRowText.includes('8 KM/L') || !savedTripRowText.includes('1,00,000')) {
+      throw new Error(`Saved trip row mismatch! Text: ${savedTripRowText}`);
+    }
     await page.locator('button:has-text("PDF"), button:has-text("Export PDF")').first().click();
     await page.waitForTimeout(2000);
 

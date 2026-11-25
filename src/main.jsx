@@ -943,7 +943,7 @@ function App() {
         [group]: current.expenses[group].map((row) => {
           if (row.id !== id) return row;
           const updated = { ...row, [key]: value };
-          if (['tolls', 'otherExpenses', 'vehicleExpenses', 'policeRtoExpenses'].includes(group)) {
+          if (['tolls', 'otherExpenses', 'vehicleExpenses', 'policeRtoExpenses', 'loadingUnloadingExpenses'].includes(group)) {
             const o = key === 'paidByOwner' ? value : updated.paidByOwner;
             const d = key === 'paidByDriver' ? value : updated.paidByDriver;
             if (o !== undefined || d !== undefined) {
@@ -1715,10 +1715,20 @@ function App() {
   const freightDetails = useMemo(() => sortedTrips.flatMap((savedTrip) => (savedTrip.freights || []).map((freight, index) => {
     const hasLoadingExpenses = Array.isArray(savedTrip.expenses?.loadingUnloadingExpenses) && savedTrip.expenses.loadingUnloadingExpenses.length > 0;
     const totalLr = number(freight.amount) + (hasLoadingExpenses ? 0 : (number(freight.loadingCharge) + number(freight.unloadingCharge)));
+    const advOwner = (freight.receivedByOwner !== undefined && freight.receivedByOwner !== '')
+      ? number(freight.receivedByOwner)
+      : (freight.receivedByDriver !== undefined && freight.receivedByDriver !== '' ? 0 : (freight.paymentMode === 'Cash to driver' ? 0 : number(freight.received)));
+    const advDriver = (freight.receivedByDriver !== undefined && freight.receivedByDriver !== '')
+      ? number(freight.receivedByDriver)
+      : (freight.receivedByOwner !== undefined && freight.receivedByOwner !== '' ? 0 : (freight.paymentMode === 'Cash to driver' ? number(freight.received) : 0));
+    const advRec = advOwner + advDriver;
     const balTotal = (freight.balancePayments || []).reduce((sum, b) => sum + number(b.amount), 0);
-    const totalRec = number(freight.received) + balTotal;
+    const totalRec = advRec + balTotal;
     return {
       ...freight,
+      advOwner,
+      advDriver,
+      received: advRec,
       totalLr,
       balTotal,
       totalRec,
